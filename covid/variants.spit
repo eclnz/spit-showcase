@@ -14,11 +14,17 @@ check bam_ok: samtools quickcheck {@path}
 check fastq_ok: sh -c 'zcat "$1" | head -n 1 | grep -q "^@"' sh {@path}
 
 stage reference:
-    # bwa reads its index by the FASTA's own path, and samtools by the .fai
-    # beside it, so the job copies the FASTA to where its indexes go.
-    operation index(reference: Fasta) -> (fasta: Fasta .fasta, fai: Fai .fasta.fai beside fasta, amb: Amb .fasta.amb beside fasta, ann: Ann .fasta.ann beside fasta, bwt: Bwt .fasta.bwt beside fasta, pac: Pac .fasta.pac beside fasta, sa: Sa .fasta.sa beside fasta)
-    command index: sh -c 'cp "$1" "$2" && bwa index "$2" && samtools faidx "$2"' sh {reference} {fasta}
-    genome, genome_fai, genome_amb, genome_ann, genome_bwt, genome_pac, genome_sa = index(reference)
+    # bwa writes its index under a prefix, and bwa mem reads it by the same
+    # prefix: the index is one folder, with the prefix `genome` inside it.
+    operation bwa_index(reference: Fasta) -> BwaIndex /
+    command bwa_index: bwa index -p {@output}/genome {reference}
+    genome_index = bwa_index(reference)
+
+    # bcftools finds a FASTA's .fai only beside the FASTA, so the job copies
+    # the FASTA into a folder of its own and indexes it there.
+    operation faidx(reference: Fasta) -> IndexedFasta /
+    command faidx: sh -c 'cp "$1" "$2/genome.fasta" && samtools faidx "$2/genome.fasta"' sh {reference} {@output}
+    genome_fasta = faidx(reference)
 
 stage reads:
     # fastp trims adapters and low-quality ends, and reports what it did.
@@ -28,10 +34,10 @@ stage reads:
     trimmed_r1, trimmed_r2, fastp_report = trim(r1, r2)
 
 stage align:
-    operation align(genome: Fasta, r1: Fastq, r2: Fastq) -> Sam .sam
-    command align: bwa mem -M -t {@cores} -o {@output} {genome} {r1} {r2}
+    operation align(index: BwaIndex, r1: Fastq, r2: Fastq) -> Sam .sam
+    command align: bwa mem -M -t {@cores} -o {@output} {index}/genome {r1} {r2}
     resources align: cores=2, memory=1G
-    aligned = align(genome, trimmed_r1, trimmed_r2)
+    aligned = align(genome_index, trimmed_r1, trimmed_r2)
 
     # samtools index writes the .bai beside the BAM it indexes.
     operation sort(sam: Sam) -> (bam: Bam .bam @check(bam_ok), bai: Bai .bam.bai beside bam)
@@ -44,9 +50,9 @@ stage align:
     flags = flagstat(sorted)
 
 stage call:
-    operation pileup(genome: Fasta, bam: Bam) -> Bcf .bcf
-    command pileup: bcftools mpileup -f {genome} -O b -o {@output} {bam}
-    pileups = pileup(genome, sorted)
+    operation pileup(genome: IndexedFasta, bam: Bam) -> Bcf .bcf
+    command pileup: bcftools mpileup -f {genome}/genome.fasta -O b -o {@output} {bam}
+    pileups = pileup(genome_fasta, sorted)
 
     operation call(pileup: Bcf) -> (vcf: Vcf .vcf.gz, csi: Csi .vcf.gz.csi beside vcf)
     command call: sh -c 'bcftools call -mv --ploidy 1 -O z -o "$2" "$1" && bcftools index "$2"' sh {pileup} {vcf}
