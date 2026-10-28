@@ -1,0 +1,8 @@
+pipeline digits.spit
+root data
+
+inputs:
+    recording: recordings/{digit:digits}_{speaker}_{take:digits}.wav
+
+# Every speaker says every digit.
+require [speaker] where recording count>=10

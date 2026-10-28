@@ -1,0 +1,57 @@
+# SARS-CoV-2 variants: trim each sample's paired reads, align them to the
+# reference, call variants per sample, and merge the calls into one table.
+
+source reference : Fasta .fasta
+source r1 : Fastq .fastq.gz [sample] @check(fastq_ok)
+source r2 : Fastq .fastq.gz [sample] @check(fastq_ok)
+
+default entities: {@key}={@value} separated "_"
+default path: out/{@stage}/{@product}[/{@entities}]
+
+check nonempty: test -s {@path}
+check bam_ok: samtools quickcheck {@path}
+# A gzipped FASTQ whose first record starts with `@`: `test -s` passes a gzip of nothing.
+check fastq_ok: sh -c 'zcat "$1" | head -n 1 | grep -q "^@"' sh {@path}
+
+stage reference:
+    # bwa reads its index by the FASTA's own path, and samtools by the .fai
+    # beside it, so the job copies the FASTA to where its indexes go.
+    operation index(reference: Fasta) -> (fasta: Fasta .fasta, fai: Fai .fasta.fai beside fasta, amb: Amb .fasta.amb beside fasta, ann: Ann .fasta.ann beside fasta, bwt: Bwt .fasta.bwt beside fasta, pac: Pac .fasta.pac beside fasta, sa: Sa .fasta.sa beside fasta)
+    command index: sh -c 'cp "$1" "$2" && bwa index "$2" && samtools faidx "$2"' sh {reference} {fasta}
+    genome, genome_fai, genome_amb, genome_ann, genome_bwt, genome_pac, genome_sa = index(reference)
+
+stage reads:
+    # fastp trims adapters and low-quality ends, and reports what it did.
+    operation trim(r1: Fastq, r2: Fastq) -> (t1: Fastq .fastq.gz @check(fastq_ok), t2: Fastq .fastq.gz @check(fastq_ok), report: Json .json)
+    command trim: fastp --thread {@cores} -i {r1} -I {r2} -o {t1} -O {t2} --json {report} --html /dev/null
+    resources trim: cores=2, memory=1G
+    trimmed_r1, trimmed_r2, fastp_report = trim(r1, r2)
+
+stage align:
+    operation align(genome: Fasta, r1: Fastq, r2: Fastq) -> Sam .sam
+    command align: bwa mem -M -t {@cores} -o {@output} {genome} {r1} {r2}
+    resources align: cores=2, memory=1G
+    aligned = align(genome, trimmed_r1, trimmed_r2)
+
+    # samtools index writes the .bai beside the BAM it indexes.
+    operation sort(sam: Sam) -> (bam: Bam .bam @check(bam_ok), bai: Bai .bam.bai beside bam)
+    command sort: sh -c 'samtools sort --threads "$1" -o "$2" "$3" && samtools index "$2"' sh {@cores} {bam} {sam}
+    resources sort: cores=2, memory=1G
+    sorted, sorted_bai = sort(aligned)
+
+    operation flagstat(bam: Bam) -> Stats .txt
+    command flagstat: samtools flagstat {bam} > {@output}
+    flags = flagstat(sorted)
+
+stage call:
+    operation pileup(genome: Fasta, bam: Bam) -> Bcf .bcf
+    command pileup: bcftools mpileup -f {genome} -O b -o {@output} {bam}
+    pileups = pileup(genome, sorted)
+
+    operation call(pileup: Bcf) -> (vcf: Vcf .vcf.gz, csi: Csi .vcf.gz.csi beside vcf)
+    command call: sh -c 'bcftools call -mv --ploidy 1 -O z -o "$2" "$1" && bcftools index "$2"' sh {pileup} {vcf}
+    calls, calls_index = call(pileups)
+
+    operation merge(vcfs: many Vcf) -> Vcf .vcf.gz
+    command merge: bcftools merge -O z -o {@output} {vcfs}
+    cohort = merge(calls @vary(sample))

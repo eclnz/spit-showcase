@@ -1,0 +1,42 @@
+# Spoken digits: clean each recording, measure it, draw it, and summarise
+# the recordings per speaker and per digit.
+
+source recording : Wav .wav [speaker, digit, take]
+
+default entities: {@key}={@value} separated "_"
+default path: out/{@stage}/{@product}/{@entities}
+
+check nonempty: test -s {@path}
+default check: nonempty
+
+stage clean:
+    # Cut the silence at both ends, then bring every take to 16 kHz at -1 dBFS.
+    operation trim(audio: Wav) -> Wav .wav
+    command trim: sox {audio} {@output} silence 1 0.02 1% reverse silence 1 0.02 1% reverse
+    trimmed = trim(recording)
+
+    operation normalise(audio: Wav) -> Wav .wav
+    command normalise: sox {audio} {@output} rate 16k norm -1
+    clean = normalise(trimmed)
+
+stage measure:
+    # soxi prints the duration in seconds on its stdout.
+    operation duration(audio: Wav) -> Seconds .txt
+    command duration: soxi -D {audio} > {@output}
+    seconds = duration(clean)
+
+    operation spectrogram(audio: Wav) -> Png .png
+    command spectrogram: sox {audio} -n spectrogram -o {@output}
+    picture = spectrogram(clean)
+
+stage summarise:
+    # Every take of a digit by one speaker, one after another.
+    operation concatenate(takes: many Wav) -> Wav .wav
+    command concatenate: sox {takes} {@output}
+    takes = concatenate(clean @vary(take))
+
+    # A table of durations, one row per file, from the files' names.
+    operation table(durations: many Seconds) -> Table .tsv
+    command table: python3 ../../scripts/table.py {durations} > {@output}
+    by_speaker = table(seconds @vary(digit, take))
+    by_digit = table(seconds @vary(speaker, take))

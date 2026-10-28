@@ -1,0 +1,7 @@
+pipeline variants.spit
+root data
+
+inputs:
+    reference: reference/genome.fasta
+    r1: reads/{sample}_R1.fastq.gz
+    r2: reads/{sample}_R2.fastq.gz

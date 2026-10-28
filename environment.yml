@@ -1,0 +1,12 @@
+name: spit-showcase
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python>=3.10
+  - sox
+  - ffmpeg
+  - fastp
+  - bwa
+  - samtools
+  - bcftools
