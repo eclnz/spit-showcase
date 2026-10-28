@@ -73,11 +73,16 @@ Times are on 4 cores.
 
 ## Usability findings
 
-Building these pipelines turned up friction in SPIT and spit-bash, which is filed as issues on those repositories. The main points:
+Building these pipelines turned up friction, filed as issues:
 
-- **Shell wrappers are common.** Four of the nine genomics commands need `sh -c '... "$1" ...' sh {a} {b}`, for a tool run twice in a row (`samtools sort && samtools index`) or for a check that needs a pipe.
-- **Index-prefix tools need a workaround.** For `bwa`, `bowtie2` and the like, the reader needs the same path prefix the writer was given. Only outputs have `.dir` and `.stem`, so the index job copies the FASTA into its own output.
-- **Commands can't use dimension values.** `{speaker}` is unknown in a command, so a summary script parses entities back out of file names.
-- **Commands run from the dataset root.** A script shipped beside the pipeline is reached as `../../scripts/table.py`.
-- **Outputs and runner state live inside the dataset folder.**
-- **The runner is the slow part at scale.** Loading a 12,000-job DAG takes most of a no-op rerun.
+- **Shell wrappers are common.** Four of the nine genomics commands need `sh -c '... "$1" ...' sh {a} {b}`, for a tool run twice in a row (`samtools sort && samtools index`) or for a check that needs a pipe ([spit#183](https://github.com/eclnz/spit/issues/183)).
+- **Index-prefix tools need a workaround.** For `bwa`, `bowtie2` and the like, the reader needs the same path prefix the writer was given. Only outputs have `.dir` and `.stem`, so the index job copies the FASTA into its own output. Every output must also be named at the call, even when nothing reads it ([spit#181](https://github.com/eclnz/spit/issues/181)).
+- **Commands can't use dimension values.** `{speaker}` is unknown in a command, so [`scripts/table.py`](scripts/table.py) parses entities back out of file names ([spit#180](https://github.com/eclnz/spit/issues/180)).
+- **Commands run from the dataset root.** A script shipped beside the pipeline is reached as `../../scripts/table.py` ([spit#182](https://github.com/eclnz/spit/issues/182)).
+- **Outputs and runner state live inside the dataset folder,** and later `spit` commands note the runner's 1,278 log and state files there ([spit#185](https://github.com/eclnz/spit/issues/185), [spit-bash#32](https://github.com/eclnz/spit-bash/issues/32)).
+- **The paths guide gives a recipe form the parser rejects** ([spit#184](https://github.com/eclnz/spit/issues/184)).
+- **The runner is the slow part at scale.**
+  - Loading a 12,000-job DAG takes most of an 8 s no-op rerun ([spit-bash#28](https://github.com/eclnz/spit-bash/issues/28)).
+  - `run` prints a line for every job before starting ([spit-bash#29](https://github.com/eclnz/spit-bash/issues/29)).
+- **Memory reads can miss short jobs.** A job that goes over its memory and finishes within half a second isn't caught ([spit-bash#30](https://github.com/eclnz/spit-bash/issues/30)).
+- **Partial runs leave stale results silently.** A run with `--only` doesn't say which results it left out of date ([spit-bash#31](https://github.com/eclnz/spit-bash/issues/31)).
