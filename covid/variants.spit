@@ -32,7 +32,7 @@ stage reads:
     # fastp trims adapters and low-quality ends, and reports what it did.
     operation trim(r1: Fastq, r2: Fastq) -> (t1: Fastq .fastq.gz @check(fastq_ok), t2: Fastq .fastq.gz @check(fastq_ok), report: Json .json)
     command trim: fastp --thread {@cores} -i {r1} -I {r2} -o {t1} -O {t2} --json {report} --html /dev/null
-    resources trim: cores=2, memory=1G
+    resources trim: cores=2, memory=2G
     trimmed_r1, trimmed_r2, fastp_report = trim(r1, r2)
 
 stage align:
