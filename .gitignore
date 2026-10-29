@@ -1,2 +1,3 @@
 # Downloaded by each fetch.sh, and everything the pipelines and spit-bash write under it.
 data/
+.spit-bash/

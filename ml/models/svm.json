@@ -1,0 +1,1 @@
+{"estimator": "SVC", "scale": true, "params": {"C": 1.0, "kernel": "rbf"}}
