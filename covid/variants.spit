@@ -23,7 +23,9 @@ stage reference:
     # bcftools finds a FASTA's .fai only beside the FASTA, so the job copies
     # the FASTA into a folder of its own and indexes it there.
     operation faidx(reference: Fasta) -> IndexedFasta /
-    command faidx: sh -c 'cp "$1" "$2/genome.fasta" && samtools faidx "$2/genome.fasta"' sh {reference} {@output}
+    command faidx:
+        cp {reference} {@output}/genome.fasta
+        samtools faidx {@output}/genome.fasta
     genome_fasta = faidx(reference)
 
 stage reads:
@@ -42,7 +44,9 @@ stage align:
 
     # samtools index writes the .bai beside the BAM it indexes.
     operation sort(sam: Sam) -> (bam: Bam .bam @check(bam_ok), bai: Bai .bam.bai beside bam)
-    command sort: sh -c 'samtools sort --threads "$1" -o "$2" "$3" && samtools index "$2"' sh {@cores} {bam} {sam}
+    command sort:
+        samtools sort --threads {@cores} -o {bam} {sam}
+        samtools index {bam}
     resources sort: cores=2, memory=1G
     sorted, sorted_bai = sort(aligned)
 
@@ -56,7 +60,9 @@ stage call:
     pileups = pileup(genome_fasta, sorted)
 
     operation call(pileup: Bcf) -> (vcf: Vcf .vcf.gz, csi: Csi .vcf.gz.csi beside vcf)
-    command call: sh -c 'bcftools call -mv --ploidy 1 -O z -o "$2" "$1" && bcftools index "$2"' sh {pileup} {vcf}
+    command call:
+        bcftools call -mv --ploidy 1 -O z -o {vcf} {pileup}
+        bcftools index {vcf}
     calls, calls_index = call(pileups)
 
     operation merge(vcfs: many Vcf) -> Vcf .vcf.gz

@@ -13,10 +13,10 @@ Two pipelines on public data, written in [SPIT](https://github.com/eclnz/spit) a
 micromamba create -f environment.yml        # or: conda env create -f environment.yml
 micromamba activate spit-showcase
 cargo install --git https://github.com/eclnz/spit --branch dev spit
-pip install git+https://github.com/eclnz/spit-bash@job-resources
+pip install git+https://github.com/eclnz/spit-bash@dev
 ```
 
-spit-bash's `job-resources` branch reads the cores and memory these pipelines declare.
+spit-bash's `dev` branch reads the cores and memory these pipelines declare, and runs each line of a command written as a block.
 
 ## Spoken digits
 
@@ -53,7 +53,7 @@ spit-bash run variants.spitin -j 4
 1. Index the reference.
 2. Trim the reads with fastp.
 3. Align them with `bwa mem`, with a read group that names the sample.
-4. Sort and index the alignments.
+4. Sort and index the alignments, in one job whose command runs `samtools sort` and then `samtools index`, since the index is written beside the BAM.
 5. Run `samtools flagstat`.
 6. Pile up and call variants with bcftools.
 
