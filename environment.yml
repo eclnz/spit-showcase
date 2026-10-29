@@ -10,3 +10,6 @@ dependencies:
   - bwa
   - samtools
   - bcftools
+  - gdal
+  - scikit-learn
+  - pandas

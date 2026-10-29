@@ -1,0 +1,8 @@
+pipeline terrain.spit
+root .
+
+inputs:
+    tile: data/tiles/{region}/{x}_{y}.tif
+    grid: grids/{region}.opt
+    ramp: ramp.txt
+    row: row.py

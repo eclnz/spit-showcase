@@ -1,0 +1,1 @@
+{"estimator": "RandomForestClassifier", "scale": false, "params": {"n_estimators": 300, "random_state": 0}}

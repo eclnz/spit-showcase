@@ -1,0 +1,46 @@
+# Classifiers: hold out a quarter of each dataset, fit every model to the
+# rest, score each fit on the held-out quarter, and rank the models.
+
+source dataset : Table .csv [dataset]
+# A model is a scikit-learn estimator, its settings, and whether to scale first.
+source model : Spec .json [model]
+# Each step's script is an input, so editing one reruns only that step's jobs.
+source split_py : Python .py
+source fit_py : Python .py
+source score_py : Python .py
+source rank_py : Python .py
+
+dimensions [dataset, model]
+
+default entities: {@key}={@value} separated "_"
+default path: data/out/{@stage}/{@product}[/{@entities}]
+
+check nonempty: test -s {@path}
+default check: nonempty
+
+stage split:
+    # The same stratified split for every model, made once per dataset.
+    operation split(script: Python, table: Table) -> (train: Table .csv, test: Table .csv)
+    command split: python3 {script} {table} {train} {test}
+    train, test = split(split_py, dataset)
+
+stage fit:
+    # Every model on every dataset: model @each(model) crosses the two.
+    operation fit(script: Python, spec: Spec, train: Table) -> Model .pkl
+    command fit: python3 {script} {@cores} {spec} {train} {@output}
+    resources fit: cores=2, memory=1G
+    fitted = fit(fit_py, model @each(model), train)
+
+    operation score(script: Python, fitted: Model, test: Table) -> Scores .json
+    command score: python3 {script} {fitted} {test} > {@output}
+    scores = score(score_py, fitted, test)
+
+stage rank:
+    # The models ranked on each dataset, and the datasets for each model.
+    operation rank_models(script: Python, scores: many Scores) -> Table .tsv
+    command rank_models: python3 {script} model {scores.model} -- {scores} > {@output}
+    per_dataset = rank_models(rank_py, scores @vary(model))
+
+    operation rank_datasets(script: Python, scores: many Scores) -> Table .tsv
+    command rank_datasets: python3 {script} dataset {scores.dataset} -- {scores} > {@output}
+    per_model = rank_datasets(rank_py, scores @vary(dataset))

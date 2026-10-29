@@ -1,0 +1,1 @@
+{"estimator": "LogisticRegression", "scale": true, "params": {"max_iter": 2000}}
