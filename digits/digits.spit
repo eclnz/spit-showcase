@@ -35,8 +35,10 @@ stage summarise:
     command concatenate: sox {takes} {@output}
     takes = concatenate(clean @vary(take))
 
-    # A table of durations, one row per file, from the files' names.
+    # A table of durations, one row per file. `{durations.digit}` gives each
+    # file's digit, in the order `{durations}` gives the files.
+    # Commands run from the dataset root, `data`, so the script is two folders up.
     operation table(durations: many Seconds) -> Table .tsv
-    command table: python3 ../../scripts/table.py {durations} > {@output}
+    command table: python3 ../../scripts/table.py --speaker {durations.speaker} --digit {durations.digit} --take {durations.take} --seconds {durations} > {@output}
     by_speaker = table(seconds @vary(digit, take))
     by_digit = table(seconds @vary(speaker, take))

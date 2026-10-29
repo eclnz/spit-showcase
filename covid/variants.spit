@@ -35,7 +35,8 @@ stage reads:
 
 stage align:
     operation align(index: BwaIndex, r1: Fastq, r2: Fastq) -> Sam .sam
-    command align: bwa mem -M -t {@cores} -o {@output} {index}/genome {r1} {r2}
+    # The read group names the sample, which bcftools takes as its name.
+    command align: bwa mem -M -t {@cores} -R "@RG\tID:{sample}\tSM:{sample}" -o {@output} {index}/genome {r1} {r2}
     resources align: cores=2, memory=1G
     aligned = align(genome_index, trimmed_r1, trimmed_r2)
 

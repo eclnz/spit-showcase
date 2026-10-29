@@ -16,7 +16,7 @@ cargo install --git https://github.com/eclnz/spit --branch dev spit
 pip install git+https://github.com/eclnz/spit-bash@job-resources
 ```
 
-spit-bash's `job-resources` branch is the one that reads the cores and memory these pipelines declare. Once it is merged, `@dev` will do.
+spit-bash's `job-resources` branch reads the cores and memory these pipelines declare.
 
 ## Spoken digits
 
@@ -52,7 +52,7 @@ spit-bash run variants.spitin -j 4
 
 1. Index the reference.
 2. Trim the reads with fastp.
-3. Align them with `bwa mem`.
+3. Align them with `bwa mem`, with a read group that names the sample.
 4. Sort and index the alignments.
 5. Run `samtools flagstat`.
 6. Pile up and call variants with bcftools.
@@ -69,20 +69,5 @@ Times are on 4 cores.
 - **Touching a file reruns nothing**, because spit-bash compares files by content.
 - **Selection.** `spit-bash run digits.spitin --only speaker=theo` runs one speaker's 211 jobs out of 1,276.
 - **Bad input is caught by checks.** A gzip of garbage passed fastp and `test -s`. A `fastq_ok` check on the reads stops it, and the run reports which file failed.
+- **Commands take dimension values.** `bwa mem` names each sample in its read group with `{sample}`. Each duration table gets every file's speaker, digit and take as `{durations.speaker}`, `{durations.digit}` and `{durations.take}`, in the order of `{durations}`.
 - **Memory is enforced.** A run given less `--memory` than a step declares is refused before it starts, naming each job.
-
-## Usability findings
-
-Building these pipelines turned up friction, filed as issues:
-
-- **Shell wrappers are common.** Four of the nine genomics commands need `sh -c '... "$1" ...' sh {a} {b}`, for a tool run twice in a row (`samtools sort && samtools index`) or for a check that needs a pipe ([spit#183](https://github.com/eclnz/spit/issues/183)).
-- **Indexes are folder outputs.** bwa's index is one folder, `bwa index -p {@output}/genome`, read by `bwa mem {index}/genome`, now that the runner makes an output folder before its command ([spit#181](https://github.com/eclnz/spit/issues/181)). bcftools still needs the `.fai` beside the FASTA it reads, so that step copies the FASTA into a folder of its own and indexes it there. Every output must also be named at the call, even when nothing reads it.
-- **Commands can't use dimension values.** `{speaker}` is unknown in a command, so [`scripts/table.py`](scripts/table.py) parses entities back out of file names ([spit#180](https://github.com/eclnz/spit/issues/180)).
-- **Commands run from the dataset root.** A script shipped beside the pipeline is reached as `../../scripts/table.py` ([spit#182](https://github.com/eclnz/spit/issues/182)).
-- **Outputs and runner state live inside the dataset folder,** and later `spit` commands note the runner's 1,278 log and state files there ([spit#185](https://github.com/eclnz/spit/issues/185), [spit-bash#32](https://github.com/eclnz/spit-bash/issues/32)).
-- **The paths guide gives a recipe form the parser rejects** ([spit#184](https://github.com/eclnz/spit/issues/184)).
-- **The runner is the slow part at scale.**
-  - Loading a 12,000-job DAG takes most of an 8 s no-op rerun ([spit-bash#28](https://github.com/eclnz/spit-bash/issues/28)).
-  - `run` prints a line for every job before starting ([spit-bash#29](https://github.com/eclnz/spit-bash/issues/29)).
-- **Memory reads can miss short jobs.** A job that goes over its memory and finishes within half a second isn't caught ([spit-bash#30](https://github.com/eclnz/spit-bash/issues/30)).
-- **Partial runs leave stale results silently.** A run with `--only` doesn't say which results it left out of date ([spit-bash#31](https://github.com/eclnz/spit-bash/issues/31)).
