@@ -16,7 +16,7 @@ cargo install --git https://github.com/eclnz/spit --branch dev spit
 pip install git+https://github.com/eclnz/spit-bash@job-resources
 ```
 
-spit-bash's `job-resources` branch is the one that reads the cores and memory these pipelines declare. Once it is merged, `@dev` will do.
+spit-bash's `job-resources` branch reads the cores and memory these pipelines declare.
 
 ## Spoken digits
 
@@ -69,6 +69,7 @@ Times are on 4 cores.
 - **Touching a file reruns nothing**, because spit-bash compares files by content.
 - **Selection.** `spit-bash run digits.spitin --only speaker=theo` runs one speaker's 211 jobs out of 1,276.
 - **Bad input is caught by checks.** A gzip of garbage passed fastp and `test -s`. A `fastq_ok` check on the reads stops it, and the run reports which file failed.
+- **Commands take dimension values.** `bwa mem` names each sample in its read group with `{sample}`. Each duration table gets every file's speaker, digit and take as `{durations.speaker}`, `{durations.digit}` and `{durations.take}`, in the order of `{durations}`.
 - **Memory is enforced.** A run given less `--memory` than a step declares is refused before it starts, naming each job.
 
 ## Usability findings
@@ -76,8 +77,7 @@ Times are on 4 cores.
 Building these pipelines turned up friction, filed as issues:
 
 - **Shell wrappers are common.** Four of the nine genomics commands need `sh -c '... "$1" ...' sh {a} {b}`, for a tool run twice in a row (`samtools sort && samtools index`) or for a check that needs a pipe ([spit#183](https://github.com/eclnz/spit/issues/183)).
-- **Indexes are folder outputs.** bwa's index is one folder, `bwa index -p {@output}/genome`, read by `bwa mem {index}/genome`, now that the runner makes an output folder before its command ([spit#181](https://github.com/eclnz/spit/issues/181)). bcftools still needs the `.fai` beside the FASTA it reads, so that step copies the FASTA into a folder of its own and indexes it there. Every output must also be named at the call, even when nothing reads it.
-- **Commands need dimension values.** A command could name only files, so [`scripts/table.py`](scripts/table.py) parsed each file's speaker, digit and take back out of its name. Now `{sample}` gives a job's own value, which `bwa mem` puts in its read group ([spit#180](https://github.com/eclnz/spit/issues/180)), and `{durations.digit}` gives each collected file's, in the order of `{durations}` ([spit#186](https://github.com/eclnz/spit/issues/186)).
+- **Indexes are folder outputs.** bwa's index is one folder, `bwa index -p {@output}/genome`, read by `bwa mem {index}/genome`, since the runner makes an output folder before its command ([spit#181](https://github.com/eclnz/spit/issues/181)). bcftools still needs the `.fai` beside the FASTA it reads, so that step copies the FASTA into a folder of its own and indexes it there. Every output must also be named at the call, even when nothing reads it.
 - **Commands run from the dataset root.** A script shipped beside the pipeline is reached as `../../scripts/table.py` ([spit#182](https://github.com/eclnz/spit/issues/182)).
 - **Outputs and runner state live inside the dataset folder,** and later `spit` commands note the runner's 1,278 log and state files there ([spit#185](https://github.com/eclnz/spit/issues/185), [spit-bash#32](https://github.com/eclnz/spit-bash/issues/32)).
 - **The paths guide gives a recipe form the parser rejects** ([spit#184](https://github.com/eclnz/spit/issues/184)).
