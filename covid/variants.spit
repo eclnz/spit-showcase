@@ -20,13 +20,11 @@ stage reference:
     command bwa_index: bwa index -p {@output}/genome {reference}
     genome_index = bwa_index(reference)
 
-    # bcftools finds a FASTA's .fai only beside the FASTA, so the job copies
-    # the FASTA into a folder of its own and indexes it there.
-    operation faidx(reference: Fasta) -> IndexedFasta /
-    command faidx:
-        cp {reference} {@output}/genome.fasta
-        samtools faidx {@output}/genome.fasta
-    genome_fasta = faidx(reference)
+    # samtools faidx writes the .fai beside the FASTA, where bcftools looks
+    # for it: beside the source, in the dataset.
+    operation faidx(fasta: Fasta) -> Fai +.fai beside fasta
+    command faidx: samtools faidx {fasta}
+    genome_fai = faidx(reference)
 
 stage reads:
     # fastp trims adapters and low-quality ends, and reports what it did.
@@ -43,7 +41,7 @@ stage align:
     aligned = align(genome_index, trimmed_r1, trimmed_r2)
 
     # samtools index writes the .bai beside the BAM it indexes.
-    operation sort(sam: Sam) -> (bam: Bam .bam @check(bam_ok), bai: Bai .bam.bai beside bam)
+    operation sort(sam: Sam) -> (bam: Bam .bam @check(bam_ok), bai: Bai +.bai beside bam)
     command sort:
         samtools sort --threads {@cores} -o {bam} {sam}
         samtools index {bam}
@@ -55,11 +53,13 @@ stage align:
     flags = flagstat(sorted)
 
 stage call:
-    operation pileup(genome: IndexedFasta, bam: Bam) -> Bcf .bcf
-    command pileup: bcftools mpileup -f {genome}/genome.fasta -O b -o {@output} {bam}
-    pileups = pileup(genome_fasta, sorted)
+    # Taking the .fai as an input makes each pileup wait for it, though
+    # bcftools finds it beside the FASTA by itself.
+    operation pileup(fasta: Fasta, fai: Fai, bam: Bam) -> Bcf .bcf
+    command pileup: bcftools mpileup -f {fasta} -O b -o {@output} {bam}
+    pileups = pileup(reference, genome_fai, sorted)
 
-    operation call(pileup: Bcf) -> (vcf: Vcf .vcf.gz, csi: Csi .vcf.gz.csi beside vcf)
+    operation call(pileup: Bcf) -> (vcf: Vcf .vcf.gz, csi: Csi +.csi beside vcf)
     command call:
         bcftools call -mv --ploidy 1 -O z -o {vcf} {pileup}
         bcftools index {vcf}

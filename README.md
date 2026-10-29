@@ -50,7 +50,7 @@ spit-bash run variants.spitin -j 4
 
 [`variants.spit`](covid/variants.spit) runs these steps for each sample:
 
-1. Index the reference.
+1. Index the reference twice: with `bwa index`, into a folder of its own, and with `samtools faidx`, which writes `genome.fasta.fai` beside the FASTA in `data/reference/`, where bcftools looks for it.
 2. Trim the reads with fastp.
 3. Align them with `bwa mem`, with a read group that names the sample.
 4. Sort and index the alignments, in one job whose command runs `samtools sort` and then `samtools index`, since the index is written beside the BAM.
