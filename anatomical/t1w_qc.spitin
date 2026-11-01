@@ -1,0 +1,5 @@
+pipeline t1w_qc.spit
+root data
+
+inputs:
+    t1w: sub-{sub}/anat/sub-{sub}_T1w.nii.gz

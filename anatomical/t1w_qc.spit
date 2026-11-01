@@ -1,0 +1,47 @@
+# T1-weighted quality control: summarise each subject's image, draw its middle
+# slices to look at, tabulate the summaries, and let through only the subjects
+# whose image passes the check below.
+
+source t1w : T1w .nii.gz [sub] @check(nifti_ok)
+
+default entities: {@key}-{@value} separated "_"
+default path: out/{@stage}/{@product}[/{@entities}]
+
+check nonempty: test -s {@path}
+check nifti_ok: python3 -c 'import sys, nibabel; nibabel.load(sys.argv[1]).get_fdata()' {@path}
+default check: nonempty
+
+# The policy of this pipeline, written where a reader sees it: a summary is
+# usable when its noise could be measured and its SNR is at least `min_snr`.
+check usable(min_snr): python3 -c 'import json, sys; snr = json.load(open(sys.argv[1]))["snr"]; sys.exit(0 if snr is not None and snr >= float(sys.argv[2]) else f"SNR {snr} is below {sys.argv[2]}")' {@path} {min_snr}
+
+stage inspect:
+    # The scripts are kept beside the pipeline, and `{@here}` is its folder.
+    operation mosaic(t1: T1w) -> Png .png
+    command mosaic: python3 {@here}/scripts/mosaic.py {t1} {@output}
+    mosaics = mosaic(t1w)
+
+stage measure:
+    operation summarise(t1: T1w) -> Json .json
+    command summarise: python3 {@here}/scripts/summarise.py {t1} {@output}
+    resources summarise: cores=1, memory=2G
+    summaries = summarise(t1w)
+
+    # A table with one row per subject. `{summaries.sub}` gives each file's
+    # subject, in the order `{summaries}` gives the files.
+    operation table(summaries: many Json) -> Table .tsv
+    command table: python3 {@here}/scripts/table.py --sub {summaries.sub} --summaries {summaries} > {@output}
+    cohort = table(summaries @vary(sub))
+
+stage qc:
+    # The summary is copied, and the copy must pass `usable`. A subject whose
+    # copy fails fails this job and holds back what reads `approved`, while the
+    # other subjects, and the table above of every subject, go on.
+    operation approve(summary: Json) -> Json .json @check(usable(35))
+    command approve: cp {summary} {@output}
+    approved = approve(summaries)
+
+    # What later steps read: the image of each approved subject.
+    operation release(t1: T1w, approved: Json) -> T1w .nii.gz
+    command release: cp {t1} {@output}
+    ready = release(t1w, approved)
