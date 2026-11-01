@@ -57,7 +57,7 @@ spit-bash run t1w_qc.spitin       # exits 1 when a subject fails the check
 - **measure:** writes the image's grid, voxel size, orientation and signal-to-noise ratio as JSON, then collects them into `data/out/measure/cohort.tsv`, one row per subject.
 - **qc:** copies the summary, and the copy must pass `check usable(min_snr)`, declared in the pipeline and attached as `@check(usable(35))`. A subject that passes is released: its image is copied to `data/out/qc/ready/`, where later steps would read it.
 
-Some subjects fail, and the pipeline expects it. For all 16 subjects, 65 jobs run in 17 s on 4 cores, and:
+Some subjects fail, and the pipeline expects it. With the 4 default subjects, 17 jobs run in 5 s and subject 4 fails. For all 16 subjects, 65 jobs run in 17 s on 4 cores, and:
 
 - Subjects 4, 7 and 8 fail the check. Subject 4's background has been removed, so there is almost no air to measure noise in and its ratio is `n/a`. Subjects 7 and 8 have SNRs of 33.3 and 34.8, below 35. The log says why: `SNR 33.3 is below 35`.
 - Each failed subject's release job fails with it, and the other 13 subjects are released.
@@ -79,7 +79,7 @@ spit-bash run bold_qc.spitin -j 3
 4. Writes the median SNR inside the mask as JSON, and collects the runs into `data/out/summary/cohort.tsv`.
 5. Approves each run whose median SNR is at least 40, with `@check(usable(40))`, and releases its SNR map to `data/out/qc/ready/`.
 
-For all 16 subjects, 97 jobs run in 31 s with `-j 4`. Subjects 3 and 15 fail the check, with median SNRs of 34.7 and 30.6, and the other 14 runs are released. The median SNR in the table runs from 30.6 to 64.9.
+With the 3 default runs, 19 jobs run in 9 s and subject 3 fails. For all 16 subjects, 97 jobs run in 31 s with `-j 4`. Subjects 3 and 15 fail the check, with median SNRs of 34.7 and 30.6, and the other 14 runs are released. The median SNR in the table runs from 30.6 to 64.9.
 
 Both pipelines keep their scripts in a `scripts/` folder beside the pipeline and name it with `{@here}`, so they run from wherever the dataset is. The thresholds, 35 and 40, are examples of a policy a lab would set for itself.
 
