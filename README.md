@@ -5,8 +5,8 @@ Four pipelines on public data, written in [SPIT](https://github.com/eclnz/spit) 
 | Folder | Data | Tools | Jobs |
 | --- | --- | --- | --- |
 | [`digits/`](digits) | [Free Spoken Digit Dataset](https://github.com/Jakobovski/free-spoken-digit-dataset): 6 speakers × 10 digits × 50 takes | sox, soxi, Python | 1,276 for 5 takes, 12,076 for all 50 |
-| [`anatomical/`](anatomical) | The T1-weighted images of [OpenNeuro ds000001](https://openneuro.org/datasets/ds000001), 4 subjects | nibabel, dipy, matplotlib | 9 for 4 subjects |
-| [`functional/`](functional) | The first task run of the same dataset, 3 subjects | nibabel, matplotlib | 13 for 3 runs |
+| [`anatomical/`](anatomical) | The T1-weighted images of [OpenNeuro ds000001](https://openneuro.org/datasets/ds000001): 16 subjects, 4 by default | nibabel, dipy, matplotlib | 9 for 4 subjects, 33 for all 16 |
+| [`functional/`](functional) | The first task run of the same dataset: 16 subjects, 3 by default | nibabel, matplotlib | 13 for 3 runs, 65 for all 16 |
 | [`covid/`](covid) | [nf-core SARS-CoV-2 test data](https://github.com/nf-core/test-datasets/tree/modules/data/genomics/sarscov2): a reference and two samples of paired reads | fastp, bwa, samtools, bcftools | 14 |
 
 ## Set up
@@ -46,7 +46,7 @@ Results land under `data/out/`, one folder per stage and product, such as `out/s
 
 ```sh
 cd anatomical
-./fetch.sh                        # 4 subjects, 18 MB; SUBJECTS=16 ./fetch.sh for all
+./fetch.sh                        # 4 subjects, 18 MB; SUBJECTS=16 ./fetch.sh for all 16, 80 MB
 spit dag t1w_qc.spitin --counts
 spit-bash run t1w_qc.spitin
 ```
@@ -56,13 +56,17 @@ spit-bash run t1w_qc.spitin
 - **inspect:** draws the middle slice of each axis.
 - **measure:** writes the image's grid, voxel size, orientation and signal-to-noise ratio as JSON, then collects them into `data/out/measure/cohort.tsv`, one row per subject.
 
-The table shows that subject 4's image has had its background removed: 86% of its voxels are exactly zero, so there is no noise to measure and its ratio is `n/a`.
+For all 16 subjects it runs 33 jobs in 11 s on 4 cores. The table picks out the odd images:
+
+- Subject 4's image has had its background removed: 86% of its voxels are exactly zero, so there is no noise to measure and its ratio is `n/a`.
+- Subjects 6 and 13 also give `n/a`, because their corners are zero padding. Their mosaics show a whole head.
+- Subject 15's ratio, 317.9, is far above the others, which run from 30.8 to 93.9.
 
 ## BOLD quality control
 
 ```sh
 cd functional
-./fetch.sh                        # 3 runs, 138 MB; SUBJECTS=16 ./fetch.sh for all
+./fetch.sh                        # 3 runs, 138 MB; SUBJECTS=16 ./fetch.sh for all 16, 741 MB
 spit-bash run bold_qc.spitin -j 3
 ```
 
@@ -72,6 +76,8 @@ spit-bash run bold_qc.spitin -j 3
 2. Masks the voxels that hold signal.
 3. Draws the SNR map with the mask's outline.
 4. Writes the median SNR inside the mask as JSON, and collects the runs into `data/out/summary/cohort.tsv`.
+
+For all 16 subjects it runs 65 jobs in 25 s with `-j 4`, and the median SNR runs from 30.6 (subject 15) to 64.9 (subject 6).
 
 Both pipelines keep their scripts in a `scripts/` folder beside the pipeline and name it with `{@here}`, so they run from wherever the dataset is.
 
