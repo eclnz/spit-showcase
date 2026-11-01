@@ -1,5 +1,6 @@
 # BOLD quality control: for each run, find the temporal SNR of every voxel,
-# keep the voxels that hold signal, draw the result, and tabulate the median.
+# keep the voxels that hold signal, draw the result, tabulate the median, and
+# let through only the runs whose median passes the check below.
 
 source bold : Bold .nii.gz [sub, task, run] @check(nifti_ok)
 
@@ -9,6 +10,10 @@ default path: out/{@stage}/{@product}[/{@entities}]
 check nonempty: test -s {@path}
 check nifti_ok: python3 -c 'import sys, nibabel; nibabel.load(sys.argv[1]).get_fdata()' {@path}
 default check: nonempty
+
+# The policy of this pipeline, written where a reader sees it: a run is usable
+# when its median temporal SNR is at least `min_tsnr`.
+check usable(min_tsnr): python3 -c 'import json, sys; tsnr = json.load(open(sys.argv[1]))["median_tsnr"]; sys.exit(0 if tsnr >= float(sys.argv[2]) else f"median temporal SNR {tsnr} is below {sys.argv[2]}")' {@path} {min_tsnr}
 
 stage temporal:
     # Two images from one pass over the 4D file: the mean over time, and the
@@ -38,3 +43,16 @@ stage summary:
     operation table(summaries: many Json) -> Table .tsv
     command table: python3 {@here}/scripts/table.py --sub {summaries.sub} --run {summaries.run} --summaries {summaries} > {@output}
     cohort = table(summaries @vary(sub, task, run))
+
+stage qc:
+    # The summary is copied, and the copy must pass `usable`. A run whose copy
+    # fails fails this job and holds back what reads `approved`, while the
+    # other runs, and the table above of every run, go on.
+    operation approve(summary: Json) -> Json .json @check(usable(40))
+    command approve: cp {summary} {@output}
+    approved = approve(summaries)
+
+    # What later steps read: the SNR map of each approved run.
+    operation release(tsnr: Image, approved: Json) -> Image .nii.gz
+    command release: cp {tsnr} {@output}
+    ready = release(tsnr, approved)

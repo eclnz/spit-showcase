@@ -5,8 +5,8 @@ Four pipelines on public data, written in [SPIT](https://github.com/eclnz/spit) 
 | Folder | Data | Tools | Jobs |
 | --- | --- | --- | --- |
 | [`digits/`](digits) | [Free Spoken Digit Dataset](https://github.com/Jakobovski/free-spoken-digit-dataset): 6 speakers × 10 digits × 50 takes | sox, soxi, Python | 1,276 for 5 takes, 12,076 for all 50 |
-| [`anatomical/`](anatomical) | The T1-weighted images of [OpenNeuro ds000001](https://openneuro.org/datasets/ds000001): 16 subjects, 4 by default | nibabel, dipy, matplotlib | 9 for 4 subjects, 33 for all 16 |
-| [`functional/`](functional) | The first task run of the same dataset: 16 subjects, 3 by default | nibabel, matplotlib | 13 for 3 runs, 65 for all 16 |
+| [`anatomical/`](anatomical) | The T1-weighted images of [OpenNeuro ds000001](https://openneuro.org/datasets/ds000001): 16 subjects, 4 by default | nibabel, dipy, matplotlib | 17 for 4 subjects, 65 for all 16 |
+| [`functional/`](functional) | The first task run of the same dataset: 16 subjects, 3 by default | nibabel, matplotlib | 19 for 3 runs, 97 for all 16 |
 | [`covid/`](covid) | [nf-core SARS-CoV-2 test data](https://github.com/nf-core/test-datasets/tree/modules/data/genomics/sarscov2): a reference and two samples of paired reads | fastp, bwa, samtools, bcftools | 14 |
 
 ## Set up
@@ -48,19 +48,20 @@ Results land under `data/out/`, one folder per stage and product, such as `out/s
 cd anatomical
 ./fetch.sh                        # 4 subjects, 18 MB; SUBJECTS=16 ./fetch.sh for all 16, 80 MB
 spit dag t1w_qc.spitin --counts
-spit-bash run t1w_qc.spitin
+spit-bash run t1w_qc.spitin       # exits 1 when a subject fails the check
 ```
 
 [`t1w_qc.spit`](anatomical/t1w_qc.spit) reads the dataset's BIDS names, `sub-01/anat/sub-01_T1w.nii.gz`, and for each subject:
 
 - **inspect:** draws the middle slice of each axis.
 - **measure:** writes the image's grid, voxel size, orientation and signal-to-noise ratio as JSON, then collects them into `data/out/measure/cohort.tsv`, one row per subject.
+- **qc:** copies the summary, and the copy must pass `check usable(min_snr)`, declared in the pipeline and attached as `@check(usable(35))`. A subject that passes is released: its image is copied to `data/out/qc/ready/`, where later steps would read it.
 
-For all 16 subjects it runs 33 jobs in 11 s on 4 cores. The table picks out the odd images:
+Some subjects fail, and the pipeline expects it. For all 16 subjects, 65 jobs run in 17 s on 4 cores, and:
 
-- Subject 4's image has had its background removed: 86% of its voxels are exactly zero, so there is no noise to measure and its ratio is `n/a`.
-- Subjects 6 and 13 also give `n/a`, because their corners are zero padding. Their mosaics show a whole head.
-- Subject 15's ratio, 317.9, is far above the others, which run from 30.8 to 93.9.
+- Subjects 4, 7 and 8 fail the check. Subject 4's background has been removed, so there is almost no air to measure noise in and its ratio is `n/a`. Subjects 7 and 8 have SNRs of 33.3 and 34.8, below 35. The log says why: `SNR 33.3 is below 35`.
+- Each failed subject's release job fails with it, and the other 13 subjects are released.
+- All 16 subjects are still in the table and have their mosaics, because neither reads the check's output. The run exits 1.
 
 ## BOLD quality control
 
@@ -76,10 +77,11 @@ spit-bash run bold_qc.spitin -j 3
 2. Masks the voxels that hold signal.
 3. Draws the SNR map with the mask's outline.
 4. Writes the median SNR inside the mask as JSON, and collects the runs into `data/out/summary/cohort.tsv`.
+5. Approves each run whose median SNR is at least 40, with `@check(usable(40))`, and releases its SNR map to `data/out/qc/ready/`.
 
-For all 16 subjects it runs 65 jobs in 25 s with `-j 4`, and the median SNR runs from 30.6 (subject 15) to 64.9 (subject 6).
+For all 16 subjects, 97 jobs run in 31 s with `-j 4`. Subjects 3 and 15 fail the check, with median SNRs of 34.7 and 30.6, and the other 14 runs are released. The median SNR in the table runs from 30.6 to 64.9.
 
-Both pipelines keep their scripts in a `scripts/` folder beside the pipeline and name it with `{@here}`, so they run from wherever the dataset is.
+Both pipelines keep their scripts in a `scripts/` folder beside the pipeline and name it with `{@here}`, so they run from wherever the dataset is. The thresholds, 35 and 40, are examples of a policy a lab would set for itself.
 
 ## SARS-CoV-2 variants
 
@@ -111,4 +113,5 @@ Times are on 4 cores.
 - **Selection.** `spit-bash run digits.spitin --only speaker=theo` runs one speaker's 211 jobs out of 1,276.
 - **Bad input is caught by checks.** A gzip of garbage passed fastp and `test -s`. A `fastq_ok` check on the reads stops it, and the run reports which file failed.
 - **Commands take dimension values.** `bwa mem` names each sample in its read group with `{sample}`. Each duration table gets every file's speaker, digit and take as `{durations.speaker}`, `{durations.digit}` and `{durations.take}`, in the order of `{durations}`.
+- **A subject that fails quality control stops only itself.** In `anatomical/`, subjects 4, 7 and 8 fail `@check(usable(35))`. Their release jobs fail with them, the other 13 subjects are released, the table still holds all 16, and the run exits 1.
 - **Memory is enforced.** A run given less `--memory` than a step declares is refused before it starts, naming each job.
