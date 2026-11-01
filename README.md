@@ -1,10 +1,12 @@
 # SPIT showcase
 
-Two pipelines on public data, written in [SPIT](https://github.com/eclnz/spit) and run on one machine with [spit-bash](https://github.com/eclnz/spit-bash). They show the same language describing unrelated work, with real tools from conda-forge and bioconda:
+Four pipelines on public data, written in [SPIT](https://github.com/eclnz/spit) and run on one machine with [spit-bash](https://github.com/eclnz/spit-bash). They show the same language describing unrelated work, with real tools from conda-forge and bioconda:
 
 | Folder | Data | Tools | Jobs |
 | --- | --- | --- | --- |
 | [`digits/`](digits) | [Free Spoken Digit Dataset](https://github.com/Jakobovski/free-spoken-digit-dataset): 6 speakers × 10 digits × 50 takes | sox, soxi, Python | 1,276 for 5 takes, 12,076 for all 50 |
+| [`anatomical/`](anatomical) | The T1-weighted images of [OpenNeuro ds000001](https://openneuro.org/datasets/ds000001), 4 subjects | nibabel, dipy, matplotlib | 9 for 4 subjects |
+| [`functional/`](functional) | The first task run of the same dataset, 3 subjects | nibabel, matplotlib | 13 for 3 runs |
 | [`covid/`](covid) | [nf-core SARS-CoV-2 test data](https://github.com/nf-core/test-datasets/tree/modules/data/genomics/sarscov2): a reference and two samples of paired reads | fastp, bwa, samtools, bcftools | 14 |
 
 ## Set up
@@ -39,6 +41,39 @@ spit-bash run digits.spitin
 The recipe, [`digits.spitin`](digits/digits.spitin), reads the dataset's own file names, `recordings/3_theo_12.wav`, as `{digit}_{speaker}_{take}`. It requires that every speaker says every digit.
 
 Results land under `data/out/`, one folder per stage and product, such as `out/summarise/by_digit/digit=3.tsv`.
+
+## T1-weighted quality control
+
+```sh
+cd anatomical
+./fetch.sh                        # 4 subjects, 18 MB; SUBJECTS=16 ./fetch.sh for all
+spit dag t1w_qc.spitin --counts
+spit-bash run t1w_qc.spitin
+```
+
+[`t1w_qc.spit`](anatomical/t1w_qc.spit) reads the dataset's BIDS names, `sub-01/anat/sub-01_T1w.nii.gz`, and for each subject:
+
+- **inspect:** draws the middle slice of each axis.
+- **measure:** writes the image's grid, voxel size, orientation and signal-to-noise ratio as JSON, then collects them into `data/out/measure/cohort.tsv`, one row per subject.
+
+The table shows that subject 4's image has had its background removed: 86% of its voxels are exactly zero, so there is no noise to measure and its ratio is `n/a`.
+
+## BOLD quality control
+
+```sh
+cd functional
+./fetch.sh                        # 3 runs, 138 MB; SUBJECTS=16 ./fetch.sh for all
+spit-bash run bold_qc.spitin -j 3
+```
+
+[`bold_qc.spit`](functional/bold_qc.spit) reads `sub-01/func/sub-01_task-balloonanalogrisktask_run-01_bold.nii.gz` as `sub-{sub}_task-{task}_run-{run}`, and for each run:
+
+1. Writes the mean image over time and the temporal SNR, each voxel's mean over its standard deviation, from one pass over the 4D file.
+2. Masks the voxels that hold signal.
+3. Draws the SNR map with the mask's outline.
+4. Writes the median SNR inside the mask as JSON, and collects the runs into `data/out/summary/cohort.tsv`.
+
+Both pipelines keep their scripts in a `scripts/` folder beside the pipeline and name it with `{@here}`, so they run from wherever the dataset is.
 
 ## SARS-CoV-2 variants
 

@@ -1,0 +1,40 @@
+# BOLD quality control: for each run, find the temporal SNR of every voxel,
+# keep the voxels that hold signal, draw the result, and tabulate the median.
+
+source bold : Bold .nii.gz [sub, task, run] @check(nifti_ok)
+
+default entities: {@key}-{@value} separated "_"
+default path: out/{@stage}/{@product}[/{@entities}]
+
+check nonempty: test -s {@path}
+check nifti_ok: python3 -c 'import sys, nibabel; nibabel.load(sys.argv[1]).get_fdata()' {@path}
+default check: nonempty
+
+stage temporal:
+    # Two images from one pass over the 4D file: the mean over time, and the
+    # mean over the standard deviation.
+    operation temporal(bold: Bold) -> (mean: Image .nii.gz @check(nifti_ok), tsnr: Image .nii.gz @check(nifti_ok))
+    command temporal: python3 {@here}/scripts/temporal.py {bold} {mean} {tsnr}
+    resources temporal: cores=1, memory=2G
+    mean, tsnr = temporal(bold)
+
+stage mask:
+    operation mask(mean: Image) -> Mask .nii.gz @check(nifti_ok)
+    command mask: python3 {@here}/scripts/mask.py {mean} {@output}
+    head = mask(mean)
+
+stage inspect:
+    operation picture(tsnr: Image, mask: Mask) -> Png .png
+    command picture: python3 {@here}/scripts/picture.py {tsnr} {mask} {@output}
+    pictures = picture(tsnr, head)
+
+stage summary:
+    operation summarise(tsnr: Image, mask: Mask) -> Json .json
+    command summarise: python3 {@here}/scripts/summarise.py {tsnr} {mask} {@output}
+    summaries = summarise(tsnr, head)
+
+    # A table with one row per run. `{summaries.sub}` gives each file's
+    # subject, in the order `{summaries}` gives the files.
+    operation table(summaries: many Json) -> Table .tsv
+    command table: python3 {@here}/scripts/table.py --sub {summaries.sub} --run {summaries.run} --summaries {summaries} > {@output}
+    cohort = table(summaries @vary(sub, task, run))

@@ -1,0 +1,29 @@
+# T1-weighted quality control: summarise each subject's image, draw its middle
+# slices to look at, and tabulate the summaries.
+
+source t1w : T1w .nii.gz [sub] @check(nifti_ok)
+
+default entities: {@key}-{@value} separated "_"
+default path: out/{@stage}/{@product}[/{@entities}]
+
+check nonempty: test -s {@path}
+check nifti_ok: python3 -c 'import sys, nibabel; nibabel.load(sys.argv[1]).get_fdata()' {@path}
+default check: nonempty
+
+stage inspect:
+    # The scripts are kept beside the pipeline, and `{@here}` is its folder.
+    operation mosaic(t1: T1w) -> Png .png
+    command mosaic: python3 {@here}/scripts/mosaic.py {t1} {@output}
+    mosaics = mosaic(t1w)
+
+stage measure:
+    operation summarise(t1: T1w) -> Json .json
+    command summarise: python3 {@here}/scripts/summarise.py {t1} {@output}
+    resources summarise: cores=1, memory=2G
+    summaries = summarise(t1w)
+
+    # A table with one row per subject. `{summaries.sub}` gives each file's
+    # subject, in the order `{summaries}` gives the files.
+    operation table(summaries: many Json) -> Table .tsv
+    command table: python3 {@here}/scripts/table.py --sub {summaries.sub} --summaries {summaries} > {@output}
+    cohort = table(summaries @vary(sub))
