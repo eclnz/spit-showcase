@@ -1,0 +1,258 @@
+# ICA-based denoising of fMRI, after Griffanti et al. (2014), NeuroImage 95:
+# "ICA-based artefact removal and accelerated fMRI acquisition for improved
+# resting state network imaging".
+#
+# Each run is motion-corrected and high-pass filtered, decomposed with MELODIC,
+# its components classified as signal or noise with FIX, and cleaned two ways:
+# softly, which removes only the noise components' unique variance, and
+# aggressively, which removes all of their variance. The cleaned runs of all
+# subjects then go through a group ICA to make templates, and dual regression
+# gives each run's own time series and spatial maps for the templates, from the
+# uncleaned run and from each cleaning, so that the three can be compared.
+#
+# Differences from the paper are listed in the README.
+
+source bold : Image<Func,Epi> .nii.gz [sub, task, run] @check(nifti_ok)
+source t1w : Image<Highres,Anat> .nii.gz [sub] @check(nifti_ok)
+
+# What FSL supplies, copied into the dataset by fetch.sh so that the pipeline
+# names every file it reads: the MNI152 template and its brain mask, and the
+# FIX classifier trained on the Whitehall II standard-sequence data.
+source mni : Image<MNI,Mm2> .nii.gz @check(nifti_ok)
+source mni_mask : Mask<MNI,Mm2> .nii.gz @check(nifti_ok)
+source model : Model .pyfix_model
+
+# The number of components of each group ICA: the paper's 30 and 100. The files
+# are empty; their names carry the number.
+source dims : Dims .txt [d]
+
+dimensions [sub, task, run, d]
+
+# What an image is, as well as that it is one: the space it is in, and the voxel
+# grid it is sampled on. A transform goes from one space to another. SPIT checks
+# that they fit wherever a step joins two of them.
+types strict
+type Image<Space, Grid>
+type Mask<Space, Grid>
+type ICA<Space, Grid>
+type Series<Space, Grid>
+type Transform<From, To>
+
+default entities: {@key}-{@value} separated "_"
+default path: out/{@stage}/{@product}[/{@entities}]
+
+check nonempty: test -s {@path}
+check nifti_ok: fslinfo {@path}
+default check: nonempty
+
+stage anatomical:
+    # The subject's T1, brain-extracted and segmented, and registered to MNI152.
+    # fast writes the segmentation beside the brain it reads.
+    operation anat(t1w: Image<Highres,G>) -> (brain: Image<Highres,G> .nii.gz @check(nifti_ok), pveseg: Image<Highres,G> "_pveseg.nii.gz" beside brain)
+    command anat:
+        bet {t1w} {brain.dir}/{brain.stem} -R -f 0.3
+        fast -t 1 -o {brain.dir}/{brain.stem} {brain}
+    resources anat: cores=1, memory=4G
+    brain, pveseg = anat(t1w)
+
+    operation to_mni(brain: Image<Highres,G>, mni: Image<MNI,R>) -> Transform<Highres,MNI> .mat
+    command to_mni: flirt -in {brain} -ref {mni} -omat {@output} -dof 12
+    resources to_mni: cores=1, memory=2G
+    highres2standard = to_mni(brain, mni)
+
+stage preprocess:
+    operation motion(bold: Image<S,G>) -> (mc: Image<S,G> .nii.gz @check(nifti_ok), par: Motion .par beside mc)
+    command motion: mcflirt -in {bold} -out {mc.dir}/{mc.stem} -plots -meanvol
+    resources motion: cores=1, memory=2G
+    mc, par = motion(bold)
+
+    operation mean_image(mc: Image<S,G>) -> Image<S,G> .nii.gz @check(nifti_ok)
+    command mean_image: fslmaths {mc} -Tmean {@output}
+    resources mean_image: cores=1, memory=2G
+    mean = mean_image(mc)
+
+    # The brain of the mean image, and its mask. FIX reads the brain as the
+    # run's example volume.
+    operation extract(mean: Image<S,G>) -> (brain: Image<S,G> .nii.gz @check(nifti_ok), mask: Mask<S,G> "_mask.nii.gz" beside brain)
+    command extract: bet {mean} {brain.dir}/{brain.stem} -f 0.3 -m
+    resources extract: cores=1, memory=2G
+    func_brain, mask = extract(mean)
+
+    # The run high-pass filtered at 100 s, which at a TR of 2 s is a sigma of 25
+    # volumes, with its mean put back so that temporal SNR can be measured on it.
+    operation highpass(mc: Image<S,G>, mean: Image<S,G>, mask: Mask<S,G>) -> Image<S,G> .nii.gz @check(nifti_ok)
+    command highpass: fslmaths {mc} -bptf 25 -1 -add {mean} -mas {mask} {@output}
+    resources highpass: cores=1, memory=2G
+    filtered = highpass(mc, mean, mask)
+
+stage register:
+    # Boundary-based registration of the run to the T1, chained with the T1's
+    # registration to MNI152. FIX wants the transforms both ways.
+    operation coregister(example: Image<Func,E>, t1w: Image<Highres,A>, brain: Image<Highres,A>) -> Transform<Func,Highres> .mat
+    command coregister: epi_reg --epi={example} --t1={t1w} --t1brain={brain} --out={@output.dir}/{@output.stem}
+    resources coregister: cores=1, memory=2G
+    func2highres = coregister(func_brain, t1w, brain)
+
+    operation invert(xfm: Transform<A,B>) -> Transform<B,A> .mat
+    command invert: convert_xfm -omat {@output} -inverse {xfm}
+    highres2func = invert(func2highres)
+
+    # convert_xfm -concat takes the later transform first.
+    operation chain(first: Transform<B,C>, second: Transform<A,B>) -> Transform<A,C> .mat
+    command chain: convert_xfm -omat {@output} -concat {first} {second}
+    func2standard = chain(highres2standard, func2highres)
+    standard2func = invert(func2standard)
+
+stage ica:
+    # MELODIC picks the number of components itself (`-d 0`).
+    operation melodic(filtered: Image<S,G>, mask: Mask<S,G>) -> ICA<S,G> / @check(!nonempty)
+    command melodic: melodic -i {filtered} -o {@output} -m {mask} --nobet --tr=2 --Oall -d 0
+    resources melodic: cores=1, memory=4G
+    ica = melodic(filtered, mask)
+
+stage fix:
+    # FIX reads a FEAT-like folder, which the job builds in its output from the
+    # files the earlier steps made. It classifies each component, then cleans
+    # the run twice from the one list of noise components, both times regressing
+    # out the 24 motion terms as well.
+    operation fix(
+        ica: ICA<Func,Epi>,
+        filtered: Image<Func,Epi>,
+        mask: Mask<Func,Epi>,
+        example: Image<Func,Epi>,
+        par: Motion,
+        brain: Image<Highres,Anat>,
+        pveseg: Image<Highres,Anat>,
+        highres2func: Transform<Highres,Func>,
+        standard2func: Transform<MNI,Func>,
+        mni: Image<MNI,Mm2>,
+        model: Model
+    ) -> (
+        workdir: FixDir /,
+        labels: Labels .txt,
+        soft: Image<Func,Epi> .nii.gz @check(nifti_ok),
+        aggressive: Image<Func,Epi> .nii.gz @check(nifti_ok)
+    )
+    command fix:
+        mkdir -p {workdir}/mc {workdir}/reg
+        cp -R {ica} {workdir}/filtered_func_data.ica
+        cp {filtered} {workdir}/filtered_func_data.nii.gz
+        cp {mask} {workdir}/mask.nii.gz
+        cp {example} {workdir}/mean_func.nii.gz
+        cp {example} {workdir}/reg/example_func.nii.gz
+        cp {par} {workdir}/mc/prefiltered_func_data_mcf.par
+        cp {brain} {workdir}/reg/highres.nii.gz
+        cp {pveseg} {workdir}/reg/highres_pveseg.nii.gz
+        cp {highres2func} {workdir}/reg/highres2example_func.mat
+        cp {standard2func} {workdir}/reg/standard2example_func.mat
+        cp {mni} {workdir}/reg/standard.nii.gz
+        fix -f {workdir}
+        fix -c {workdir} {model} 20
+        cp {workdir}/fix4melview_Standard_thr20.txt {labels}
+        fix -a {labels} {workdir} -m -h 100
+        cp {workdir}/filtered_func_data_clean.nii.gz {soft}
+        fix -a {labels} {workdir} -m -h 100 -A
+        cp {workdir}/filtered_func_data_clean.nii.gz {aggressive}
+    resources fix: cores=1, memory=6G
+    workdir, labels, soft, aggressive = fix(ica, filtered, mask, func_brain, par, brain, pveseg, highres2func, standard2func, mni, model)
+
+stage standard:
+    # All three versions of each run, in MNI152 space at 4 mm.
+    operation to_standard(data: Image<Func,G>, func2standard: Transform<Func,S>, mni: Image<S,R>) -> Image<S,Mm4> .nii.gz @check(nifti_ok)
+    command to_standard: flirt -in {data} -ref {mni} -applyisoxfm 4 -init {func2standard} -out {@output}
+    resources to_standard: cores=1, memory=8G
+    none_mni = to_standard(filtered, func2standard, mni)
+    soft_mni = to_standard(soft, func2standard, mni)
+    aggressive_mni = to_standard(aggressive, func2standard, mni)
+
+stage snr:
+    # The temporal SNR of each run before and after each cleaning: every voxel's
+    # mean over its standard deviation, summarised by its median inside the
+    # brain mask eroded by three voxels, to leave out the edge.
+    operation tsnr_image(data: Image<S,G>) -> (tsnr: Image<S,G> .nii.gz @check(nifti_ok), sd: Image<S,G> "_sd.nii.gz" beside tsnr)
+    command tsnr_image:
+        fslmaths {data} -Tstd {sd}
+        fslmaths {data} -Tmean -div {sd} {tsnr}
+    resources tsnr_image: cores=1, memory=2G
+    none_tsnr, none_sd = tsnr_image(filtered)
+    soft_tsnr, soft_sd = tsnr_image(soft)
+    aggressive_tsnr, aggressive_sd = tsnr_image(aggressive)
+
+    operation erode(mask: Mask<S,G>) -> Mask<S,G> .nii.gz @check(nifti_ok)
+    command erode: fslmaths {mask} -kernel 3D -ero -ero -ero {@output}
+    inner = erode(mask)
+
+    operation median(tsnr: Image<S,G>, inner: Mask<S,G>) -> Number .txt
+    command median: fslstats {tsnr} -k {inner} -P 50 > {@output}
+    none_median = median(none_tsnr, inner)
+    soft_median = median(soft_tsnr, inner)
+    aggressive_median = median(aggressive_tsnr, inner)
+
+stage summary:
+    operation snr_table(none: many Number, soft: many Number, aggressive: many Number) -> Table .tsv
+    command snr_table: python3 {@here}/scripts/snr_table.py {@output} --sub {none.sub} --run {none.run} --none {none} --soft {soft} --aggressive {aggressive}
+    snr_cohort = snr_table(none_median @vary(sub, task, run), soft_median @vary(sub, task, run), aggressive_median @vary(sub, task, run))
+
+    operation component_table(labels: many Labels) -> Table .tsv
+    command component_table: python3 {@here}/scripts/components.py {@output} --sub {labels.sub} --run {labels.run} --labels {labels}
+    components = component_table(labels @vary(sub, task, run))
+
+stage group:
+    # The group's brain mask at 4 mm, as the runs are.
+    operation mask_4mm(mask: Mask<S,G>, mni: Image<S,R>) -> Mask<S,Mm4> .nii.gz
+    command mask_4mm:
+        flirt -in {mask} -ref {mni} -applyisoxfm 4 -out {@output}
+        fslmaths {@output} -thr 0.5 -bin {@output}
+    group_mask = mask_4mm(mni_mask, mni)
+
+    # One group ICA for each number of components, from every subject's
+    # aggressively cleaned runs, as the paper makes its templates. MELODIC takes
+    # the runs as a list in a file, which the job writes first.
+    operation group_ica(dims: Dims, runs: many Image<S,G>, mask: Mask<S,G>) -> (templates: ICA<S,G> / @check(!nonempty), runlist: List .txt)
+    command group_ica:
+        sh -c 'out=$1; shift; printf "%s\n" "$@" > "$out"' sh {runlist} {runs}
+        melodic -i {runlist} -o {templates} -m {mask} --nobet --tr=2 -d {d} -a concat --Oall
+    resources group_ica: cores=1, memory=12G
+    templates, runlist = group_ica(dims @each(d), aggressive_mni @vary(sub, task, run), group_mask)
+
+stage dual:
+    # Dual regression of the templates against each version of each run: stage 1
+    # gives the run's time series for every component, stage 2 its spatial maps.
+    operation dual1(data: Image<S,G>, group: ICA<S,G>) -> Series<S,G> .txt
+    command dual1: fsl_glm -i {data} -d {group}/melodic_IC.nii.gz -o {@output} --demean -m {group}/mask.nii.gz
+    resources dual1: cores=1, memory=2G
+
+    operation dual2(data: Image<S,G>, series: Series<S,G>, group: ICA<S,G>) -> Image<S,G> .nii.gz @check(nifti_ok)
+    command dual2: fsl_glm -i {data} -d {series} -o {@output.dir}/{@output.stem} --demean -m {group}/mask.nii.gz --des_norm
+    resources dual2: cores=1, memory=2G
+
+    none_series = dual1(none_mni, templates @each(d))
+    soft_series = dual1(soft_mni, templates @each(d))
+    aggressive_series = dual1(aggressive_mni, templates @each(d))
+
+    none_maps = dual2(none_mni, none_series, templates)
+    soft_maps = dual2(soft_mni, soft_series, templates)
+    aggressive_maps = dual2(aggressive_mni, aggressive_series, templates)
+
+stage compare:
+    # Time series: amplitude, power spectra and network matrices of each run,
+    # then the cleanings compared over all runs.
+    operation analyse(none: Series<S,G>, soft: Series<S,G>, aggressive: Series<S,G>) -> Npz .npz
+    command analyse: python3 {@here}/scripts/analyse.py {none} {soft} {aggressive} {@output}
+    analysis = analyse(none_series, soft_series, aggressive_series)
+
+    operation report(analyses: many Npz) -> (figure: Png .png, summary: Table .tsv)
+    command report: python3 {@here}/scripts/report.py {figure} {summary} {analyses}
+    figure, summary = report(analysis @vary(sub, task, run))
+
+    # Spatial maps: each cleaning's group-mean map of every component, against
+    # the template it came from.
+    operation group_mean(maps: many Image<S,G>) -> Image<S,G> .nii.gz @check(nifti_ok)
+    command group_mean: python3 {@here}/scripts/group_mean.py {@output} {maps}
+    none_mean = group_mean(none_maps @vary(sub, task, run))
+    soft_mean = group_mean(soft_maps @vary(sub, task, run))
+    aggressive_mean = group_mean(aggressive_maps @vary(sub, task, run))
+
+    operation spatial(group: ICA<S,G>, none: Image<S,G>, soft: Image<S,G>, aggressive: Image<S,G>) -> Table .tsv
+    command spatial: python3 {@here}/scripts/spatial.py {group} {none} {soft} {aggressive} {@output}
+    maps = spatial(templates, none_mean, soft_mean, aggressive_mean)

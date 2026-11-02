@@ -1,0 +1,10 @@
+pipeline ica_denoise.spit
+root data
+
+inputs:
+    bold: sub-{sub}/func/sub-{sub}_task-{task}_run-{run}_bold.nii.gz
+    t1w: sub-{sub}/anat/sub-{sub}_T1w.nii.gz
+    mni: standard/MNI152_T1_2mm_brain.nii.gz
+    mni_mask: standard/MNI152_T1_2mm_brain_mask.nii.gz
+    model: standard/Standard.pyfix_model
+    dims: dims/d-{d}.txt
