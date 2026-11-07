@@ -1,0 +1,10 @@
+pipeline classifiers.spit
+root .
+
+inputs:
+    dataset: data/datasets/{dataset}.csv
+    model: models/{model}.json
+    split_py: steps/split.py
+    fit_py: steps/fit.py
+    score_py: steps/score.py
+    rank_py: steps/rank.py

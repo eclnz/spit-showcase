@@ -1,0 +1,52 @@
+# Terrain: stitch each region's elevation tiles onto a metric grid, then
+# shade it, colour it, measure its slopes and trace its contours, and
+# summarise every region in one table.
+
+source tile : Dem .tif [region, x, y] @check(raster)
+# A region's projection and cell size, as gdalwarp options.
+source grid : Options .opt [region]
+# gdaldem's colour ramp, shared by every region.
+source ramp : Ramp .txt
+# The script that measures a region; as an input, editing it reruns the rows.
+source row : Python .py
+
+default entities: {@key}={@value} separated "_"
+default path: data/out/{@stage}/{@product}[/{@entities}]
+
+check raster: gdalinfo {@path}
+
+stage mosaic:
+    # One raster per region from its four tiles, warped to the region's UTM zone.
+    operation warp(grid: Options, tiles: many Dem) -> Dem .tif @check(raster)
+    command warp: gdalwarp -q -overwrite --optfile {grid} -r bilinear -multi -wo NUM_THREADS={@cores} {tiles} {@output}
+    resources warp: cores=2, memory=1G
+    dem = warp(grid, tile @vary(x, y))
+
+stage relief:
+    operation hillshade(dem: Dem) -> Png .png
+    command hillshade: gdaldem hillshade -q -multidirectional -compute_edges -of PNG --config GDAL_PAM_ENABLED NO {dem} {@output}
+    shade = hillshade(dem)
+
+    operation colour(dem: Dem, ramp: Ramp) -> Png .png
+    command colour: gdaldem color-relief -q -alpha -of PNG --config GDAL_PAM_ENABLED NO {dem} {ramp} {@output}
+    colours = colour(dem, ramp)
+
+    operation slope(dem: Dem) -> Dem .tif @check(raster)
+    command slope: gdaldem slope -q -compute_edges {dem} {@output}
+    slopes = slope(dem)
+
+    # A line every 100 m, each with its elevation.
+    operation contour(dem: Dem) -> Lines .gpkg
+    command contour: gdal_contour -q -a elevation -i 100 {dem} {@output}
+    contours = contour(dem)
+
+stage summary:
+    # One row per region: its elevation range and how steep it is.
+    operation measure(row: Python, dem: Dem, slope: Dem) -> Table .tsv
+    command measure: python3 {row} {region} {dem} {slope} > {@output}
+    rows = measure(row, dem, slopes)
+
+    # Every row under one header.
+    operation table(rows: many Table) -> Table .tsv
+    command table: awk 'NR == 1 || FNR > 1' {rows} > {@output}
+    regions = table(rows @vary(region))

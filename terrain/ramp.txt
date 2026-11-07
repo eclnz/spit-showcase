@@ -1,0 +1,8 @@
+# Elevation in metres, then red, green, blue: lowland green to rock and snow.
+nv     0   0   0   0
+0     34 102  51
+800  120 160  80
+1600 190 170 110
+2400 150 120 100
+3200 200 200 200
+4000 255 255 255

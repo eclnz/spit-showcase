@@ -1,0 +1,1 @@
+{"estimator": "KNeighborsClassifier", "scale": true, "params": {"n_neighbors": 5}}

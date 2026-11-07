@@ -14,3 +14,7 @@ dependencies:
   - matplotlib
   - nibabel
   - dipy
+  - gdal
+  - scikit-learn
+  - pandas
+
