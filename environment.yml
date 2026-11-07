@@ -10,6 +10,11 @@ dependencies:
   - bwa
   - samtools
   - bcftools
+  - numpy
+  - matplotlib
+  - nibabel
+  - dipy
   - gdal
   - scikit-learn
   - pandas
+
