@@ -1,5 +1,6 @@
 pipeline t1w_qc.spit
 root data
+output results
 
 inputs:
     t1w: sub-{sub}/anat/sub-{sub}_T1w.nii.gz

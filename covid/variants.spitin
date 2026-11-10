@@ -1,5 +1,6 @@
 pipeline variants.spit
 root data
+output results
 
 inputs:
     reference: reference/genome.fasta
