@@ -16,7 +16,7 @@ stage clean:
     trimmed = trim(recording)
 
     operation normalise(audio: Wav) -> Wav .wav
-    command normalise: sox {audio} {@output} rate 16k norm -1
+    command normalise: sox -R {audio} {@output} rate 16k norm -1
     clean = normalise(trimmed)
 
 stage measure:
