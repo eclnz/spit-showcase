@@ -6,7 +6,7 @@ source r1 : Fastq .fastq.gz [sample] @check(fastq_ok)
 source r2 : Fastq .fastq.gz [sample] @check(fastq_ok)
 
 default entities: {@key}={@value} separated "_"
-default path: out/{@stage}/{@product}[/{@entities}]
+default path: {@stage}/{@product}[/{@entities}]
 
 check nonempty: test -s {@path}
 check bam_ok: samtools quickcheck {@path}

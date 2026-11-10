@@ -1,5 +1,6 @@
 pipeline terrain.spit
 root .
+output results
 
 inputs:
     tile: data/tiles/{region}/{x}_{y}.tif

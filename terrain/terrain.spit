@@ -11,7 +11,7 @@ source ramp : Ramp .txt
 source row : Python .py
 
 default entities: {@key}={@value} separated "_"
-default path: data/out/{@stage}/{@product}[/{@entities}]
+default path: {@stage}/{@product}[/{@entities}]
 
 check raster: gdalinfo {@path}
 

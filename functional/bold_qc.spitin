@@ -1,5 +1,6 @@
 pipeline bold_qc.spit
 root data
+output results
 
 inputs:
     bold: sub-{sub}/func/sub-{sub}_task-{task}_run-{run}_bold.nii.gz

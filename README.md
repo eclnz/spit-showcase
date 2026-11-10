@@ -22,6 +22,8 @@ pip install git+https://github.com/eclnz/spit-bash@dev
 
 spit-bash's `dev` branch reads the cores and memory these pipelines declare, and runs each line of a command written as a block.
 
+Each recipe names its dataset with `root` and where the jobs write with `output results`, so a pipeline leaves the data it was given as it was, but for an index a tool writes beside a source, as `covid`'s `genome.fasta.fai`, and everything else it makes, with spit-bash's state and logs, is in the example's `results/` folder. Delete that folder to start again.
+
 ## Spoken digits
 
 ```sh
@@ -42,7 +44,7 @@ spit-bash run digits.spitin
 
 The recipe, [`digits.spitin`](digits/digits.spitin), reads the dataset's own file names, `recordings/3_theo_12.wav`, as `{digit}_{speaker}_{take}`. It requires that every speaker says every digit.
 
-Results land under `data/out/`, one folder per stage and product, such as `out/summarise/by_digit/digit=3.tsv`.
+Results land under `results/`, one folder per stage and product, such as `results/summarise/by_digit/digit=3.tsv`.
 
 ## T1-weighted quality control
 
@@ -56,8 +58,8 @@ spit-bash run t1w_qc.spitin       # exits 1 when a subject fails the check
 [`t1w_qc.spit`](anatomical/t1w_qc.spit) reads the dataset's BIDS names, `sub-01/anat/sub-01_T1w.nii.gz`, and for each subject:
 
 - **inspect:** draws the middle slice of each axis.
-- **measure:** writes the image's grid, voxel size, orientation and signal-to-noise ratio as JSON, then collects them into `data/out/measure/cohort.tsv`, one row per subject.
-- **qc:** copies the summary, and the copy must pass `check usable(min_snr)`, declared in the pipeline and attached as `@check(usable(35))`. A subject that passes is released: its image is copied to `data/out/qc/ready/`, where later steps would read it.
+- **measure:** writes the image's grid, voxel size, orientation and signal-to-noise ratio as JSON, then collects them into `results/measure/cohort.tsv`, one row per subject.
+- **qc:** copies the summary, and the copy must pass `check usable(min_snr)`, declared in the pipeline and attached as `@check(usable(35))`. A subject that passes is released: its image is copied to `results/qc/ready/`, where later steps would read it.
 
 Some subjects fail, and the pipeline expects it. With the 4 default subjects, 17 jobs run in 5 s and subject 4 fails. For all 16 subjects, 65 jobs run in 17 s on 4 cores, and:
 
@@ -78,8 +80,8 @@ spit-bash run bold_qc.spitin -j 3
 1. Writes the mean image over time and the temporal SNR, each voxel's mean over its standard deviation, from one pass over the 4D file.
 2. Masks the voxels that hold signal.
 3. Draws the SNR map with the mask's outline.
-4. Writes the median SNR inside the mask as JSON, and collects the runs into `data/out/summary/cohort.tsv`.
-5. Approves each run whose median SNR is at least 40, with `@check(usable(40))`, and releases its SNR map to `data/out/qc/ready/`.
+4. Writes the median SNR inside the mask as JSON, and collects the runs into `results/summary/cohort.tsv`.
+5. Approves each run whose median SNR is at least 40, with `@check(usable(40))`, and releases its SNR map to `results/qc/ready/`.
 
 With the 3 default runs, 19 jobs run in 9 s and subject 3 fails. For all 16 subjects, 97 jobs run in 31 s with `-j 4`. Subjects 3 and 15 fail the check, with median SNRs of 34.7 and 30.6, and the other 14 runs are released. The median SNR in the table runs from 30.6 to 64.9.
 
@@ -102,7 +104,7 @@ spit-bash run variants.spitin -j 4
 5. Run `samtools flagstat`.
 6. Pile up and call variants with bcftools.
 
-Last, it merges the calls into one cohort VCF, `data/out/call/cohort.vcf.gz`, which holds 12 variants. Each step declares the cores and memory it needs, and `{@cores}` hands the tool its thread count.
+Last, it merges the calls into one cohort VCF, `results/call/cohort.vcf.gz`, which holds 12 variants. Each step declares the cores and memory it needs, and `{@cores}` hands the tool its thread count.
 
 ## Terrain
 
@@ -119,7 +121,7 @@ spit-bash run terrain.spitin -j 4
 3. Compute slopes, and trace a contour every 100 m.
 4. Measure its elevation and slope with [`row.py`](terrain/row.py).
 
-Last, it gathers one row per region into `data/out/summary/regions.tsv`:
+Last, it gathers one row per region into `results/summary/regions.tsv`:
 
 ```plain
 region      lowest_m  highest_m  mean_m  mean_slope_deg  steepest_deg
@@ -151,7 +153,7 @@ spit-bash run ml.spitin -j 4
    - the models on each dataset, with `@vary(model)`;
    - the datasets for each model, with `@vary(dataset)`.
 
-`{scores.model}` labels each row with the model it came from, so the ranking script never parses file names. For example, `data/out/rank/per_dataset/dataset=digits.tsv`:
+`{scores.model}` labels each row with the model it came from, so the ranking script never parses file names. For example, `results/rank/per_dataset/dataset=digits.tsv`:
 
 ```plain
 model     accuracy  macro_f1
@@ -188,5 +190,4 @@ The terrain and classifier pipelines turned up these issues:
 
 - **A rerun fails when its tool won't overwrite.** spit-bash leaves a job's old output in place, so `gdalwarp` needs `-overwrite`. A failed rerun then removes the old result ([spit-bash#36](https://github.com/eclnz/spit-bash/issues/36)).
 - **One collection per step.** The terrain table needs each region's elevation and slope statistics, but an operation takes one `many` input. So one step per region writes a row first, and another joins the rows ([spit#195](https://github.com/eclnz/spit/issues/195)).
-- **Runner state shows up as unmatched files.** With `root .`, `spit dag` counts spit-bash's logs in `.spit-bash/` as files no rule matches ([spit#196](https://github.com/eclnz/spit/issues/196)).
 

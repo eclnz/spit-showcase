@@ -1,2 +1,4 @@
-# Downloaded by each fetch.sh, and everything the pipelines and spit-bash write under it.
+# Downloaded by each fetch.sh.
 data/
+# What the pipelines and spit-bash write.
+results/
