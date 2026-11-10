@@ -33,7 +33,7 @@ spit-bash run digits.spitin
 
 [`digits.spit`](digits/digits.spit) has three stages:
 
-- **clean:** trims the silence from both ends of each recording and brings it to 16 kHz at -1 dBFS.
+- **clean:** brings each recording to 16 kHz at -1 dBFS, then trims the silence from both ends. A check, `audible`, fails a recording the trim leaves with no audio.
 - **measure:** writes each recording's duration, with `soxi -D` on its stdout, and draws its spectrogram.
 - **summarise:**
   - joins each speaker's takes of a digit into one file, with `@vary(take)`;
