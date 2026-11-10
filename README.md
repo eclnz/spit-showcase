@@ -40,7 +40,7 @@ spit-bash run digits.spitin
   - writes a duration table per speaker, with `@vary(digit, take)`;
   - writes a duration table per digit, with `@vary(speaker, take)`.
 
-The recipe, [`digits.spitin`](digits/digits.spitin), reads the dataset's own file names, `recordings/3_theo_12.wav`, as `{digit}_{speaker}_{take}`. It requires that every speaker says every digit.
+The recipe, [`digits.spitin`](digits/digits.spitin), reads the dataset's own file names, `recordings/3_theo_12.wav`, as `{digit}_{speaker}_{take}`. It requires at least ten recordings from each speaker, which doesn't check that each one says every digit.
 
 Results land under `data/out/`, one folder per stage and product, such as `out/summarise/by_digit/digit=3.tsv`.
 
