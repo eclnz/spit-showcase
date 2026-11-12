@@ -33,14 +33,14 @@ spit-bash run digits.spitin
 
 [`digits.spit`](digits/digits.spit) has three stages:
 
-- **clean:** trims the silence from both ends of each recording and brings it to 16 kHz at -1 dBFS.
+- **clean:** brings each recording to 16 kHz at -1 dBFS, then trims the silence from both ends. A check, `audible`, fails a recording the trim leaves with no audio.
 - **measure:** writes each recording's duration, with `soxi -D` on its stdout, and draws its spectrogram.
 - **summarise:**
   - joins each speaker's takes of a digit into one file, with `@vary(take)`;
   - writes a duration table per speaker, with `@vary(digit, take)`;
   - writes a duration table per digit, with `@vary(speaker, take)`.
 
-The recipe, [`digits.spitin`](digits/digits.spitin), reads the dataset's own file names, `recordings/3_theo_12.wav`, as `{digit}_{speaker}_{take}`. It requires that every speaker says every digit.
+The recipe, [`digits.spitin`](digits/digits.spitin), reads the dataset's own file names, `recordings/3_theo_12.wav`, as `{digit}_{speaker}_{take}`. It requires at least ten recordings from each speaker, which doesn't check that each one says every digit.
 
 Results land under `data/out/`, one folder per stage and product, such as `out/summarise/by_digit/digit=3.tsv`.
 

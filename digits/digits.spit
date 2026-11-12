@@ -9,15 +9,21 @@ default path: out/{@stage}/{@product}/{@entities}
 check nonempty: test -s {@path}
 default check: nonempty
 
-stage clean:
-    # Cut the silence at both ends, then bring every take to 16 kHz at -1 dBFS.
-    operation trim(audio: Wav) -> Wav .wav
-    command trim: sox {audio} {@output} silence 1 0.02 1% reverse silence 1 0.02 1% reverse
-    trimmed = trim(recording)
+# A WAV header alone passes nonempty, so a recording the trim cut away whole
+# would flow on as silence.
+check audible: sh -c 'test "$(soxi -s "$1")" -gt 0 || { echo "$1 has no audio left"; exit 1; }' sh {@path}
 
+stage clean:
+    # Bring every take to 16 kHz at -1 dBFS, then cut the silence at both ends.
+    # Normalising first sets the 1% threshold against each take's own peak, so
+    # a quiet speaker's take isn't cut away whole.
     operation normalise(audio: Wav) -> Wav .wav
-    command normalise: sox {audio} {@output} rate 16k norm -1
-    clean = normalise(trimmed)
+    command normalise: sox -R {audio} {@output} rate 16k norm -1
+    normalised = normalise(recording)
+
+    operation trim(audio: Wav) -> Wav .wav @check(audible)
+    command trim: sox {audio} {@output} silence 1 0.02 1% reverse silence 1 0.02 1% reverse
+    clean = trim(normalised)
 
 stage measure:
     # soxi prints the duration in seconds on its stdout.

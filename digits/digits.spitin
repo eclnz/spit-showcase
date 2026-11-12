@@ -4,5 +4,6 @@ root data
 inputs:
     recording: recordings/{digit:digits}_{speaker}_{take:digits}.wav
 
-# Every speaker says every digit.
+# Every speaker has at least ten recordings. This doesn't check that each
+# speaker says every digit: a speaker missing one still passes.
 require [speaker] where recording count>=10
