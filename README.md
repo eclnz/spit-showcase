@@ -176,7 +176,7 @@ Times are on 4 cores.
 - **A full run is quick.** spit-bash runs all 12,076 jobs in 65 s with `-j 4`. A rerun with nothing to do takes 8 s, of which loading the DAG is most.
 - **Editing a command reruns only what changed.** Adding `-M` to `bwa mem` reran the alignments and the steps after them. The pileups came out byte-identical, so spit-bash stopped there: the variant calls and the cohort merge didn't rerun.
 - **Touching a file reruns nothing**, because spit-bash compares files by content.
-- **Selection.** `spit-bash run digits.spitin --only speaker=theo` runs one speaker's 211 jobs out of 1,276.
+- **Selection.** `spit-bash run digits.spitin --entity speaker=theo` runs one speaker's 211 jobs out of 1,276.
 - **Bad input is caught by checks.** A gzip of garbage passed fastp and `test -s`. A `fastq_ok` check on the reads stops it, and the run reports which file failed.
 - **Commands take dimension values.** `bwa mem` names each sample in its read group with `{sample}`. Each duration table gets every file's speaker, digit and take as `{durations.speaker}`, `{durations.digit}` and `{durations.take}`, in the order of `{durations}`.
 - **A subject that fails quality control stops only itself.** In `anatomical/`, subjects 4, 7 and 8 fail `@check(usable(35))`. Their release jobs fail with them, the other 13 subjects are released, the table still holds all 16, and the run exits 1.
