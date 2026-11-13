@@ -1,0 +1,43 @@
+# The figure, one panel a step. `figure` lays them out; import it with
+# `use figure from figure.spit` and call it like any other operation.
+
+operation map(terrain: Terrain, sites: many Site) -> Panel .png
+command map: python3 {@here}/steps/panel_map.py --terrain {terrain} --regions {sites.region} --sites {sites.site} -o {@output} {sites}
+
+operation cleaning(raw: Readings<Raw>, calibration: Calibration, clean: Readings<Clean>) -> Panel .png
+command cleaning: python3 {@here}/steps/panel_cleaning.py --raw {raw} --calibration {calibration} --clean {clean} -o {@output}
+
+operation means(regions: Table<Regions>, days: Table<Days>) -> Panel .png
+command means: python3 {@here}/steps/panel_means.py --regions {regions} --days {days} -o {@output}
+
+operation anomalies(anomalies: many Anomaly) -> Panel .png
+command anomalies: python3 {@here}/steps/panel_anomaly.py --regions {anomalies.region} --sites {anomalies.site} -o {@output} {anomalies}
+
+operation alert_days(alerts: Table<Alerts>) -> Panel .png
+command alert_days: python3 {@here}/steps/panel_alerts.py {alerts} -o {@output}
+
+operation drift(league: Table<League>) -> Panel .png
+command drift: python3 {@here}/steps/panel_drift.py {league} -o {@output}
+
+operation compose(a: Panel, b: Panel, c: Panel, d: Panel, e: Panel, f: Panel) -> Figure .png
+command compose: python3 {@here}/steps/compose.py -o {@output} {a} {b} {c} {d} {e} {f}
+
+operation figure(
+    terrain: Terrain,
+    sites: many Site,
+    raw: Readings<Raw>,
+    calibration: Calibration,
+    clean: Readings<Clean>,
+    regions: Table<Regions>,
+    days: Table<Days>,
+    alerts: Table<Alerts>,
+    anomalies: many Anomaly,
+    league: Table<League>
+) -> (figure: Figure):
+    a = map(terrain, sites)
+    b = cleaning(raw, calibration, clean)
+    c = means(regions, days)
+    d = anomalies(anomalies)
+    e = alert_days(alerts)
+    f = drift(league)
+    figure = compose(a, b, c, d, e, f)

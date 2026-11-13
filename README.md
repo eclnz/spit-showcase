@@ -1,6 +1,6 @@
 # SPIT showcase
 
-Six pipelines on public data, written in [SPIT](https://github.com/eclnz/spit) and run on one machine with [spit-bash](https://github.com/eclnz/spit-bash). They show the same language describing unrelated work, with real tools from conda-forge and bioconda:
+Six pipelines on public data and one on synthetic data, written in [SPIT](https://github.com/eclnz/spit) and run on one machine with [spit-bash](https://github.com/eclnz/spit-bash). They show the same language describing unrelated work, with real tools from conda-forge and bioconda:
 
 | Folder | Data | Tools | Jobs |
 | --- | --- | --- | --- |
@@ -9,6 +9,7 @@ Six pipelines on public data, written in [SPIT](https://github.com/eclnz/spit) a
 | [`functional/`](functional) | The first task run of the same dataset: 16 subjects, 3 by default | nibabel, matplotlib | 19 for 3 runs, 97 for all 16 |
 | [`covid/`](covid) | [nf-core SARS-CoV-2 test data](https://github.com/nf-core/test-datasets/tree/modules/data/genomics/sarscov2): a reference and two samples of paired reads | fastp, bwa, samtools, bcftools | 14 |
 | [`terrain/`](terrain) | [Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) on AWS: 2 × 2 elevation tiles around Rainier, Fuji and the Matterhorn | gdalwarp, gdaldem, gdal_contour, Python | 19 |
+| [`weather/`](weather) | A synthetic network, [`weather-data.zip`](weather/weather-data.zip): 16 sites in 3 regions, hourly readings for every fourth day of a year, and 2 alerts | Python, matplotlib | 98 |
 | [`ml/`](ml) | scikit-learn's bundled datasets: iris, wine, breast cancer, digits | scikit-learn, pandas | 53 |
 
 ## Set up
@@ -133,6 +134,33 @@ rainier     376       4387       1552    24.2            71.8
   - Editing the ramp reruns the three colour reliefs and nothing else.
   - Changing Fuji's cell size reruns Fuji's seven jobs and the table, not the other regions.
 - **A new region is new files.** Adding a folder of tiles and a grid file adds that region's jobs. The pipeline itself doesn't change.
+
+## Weather network
+
+```sh
+cd weather
+unzip -q weather-data.zip -d data    # or python3 generate.py, which writes the same files
+spit-bash run weather.spitin -j 8
+```
+
+The dataset is [`weather-data.zip`](weather/weather-data.zip), 1,487 files in 405 KB, and [`generate.py`](weather/generate.py) writes the same files again. It is a made-up landscape, 100 km square with the sea to the west and a ridge to the north, holding 16 weather sites in 3 regions. The weather is simulated for every hour of 2025, and each site keeps an hourly temperature file for every fourth day, beside a calibration file for its sensor and a file saying where it stands.
+
+Each hour's temperature is the sum of signals, each set by where the site is: a yearly cycle that swings more inland, a day-night cycle that is larger inland and on clear days, fronts the network shares (damped by the sea on the coast) with each region's own fronts and cloud on top, and 6.5 °C less for each kilometre of height. Three sites have a microclimate: elm is in a town that holds its heat at night, fir is shaded from the afternoon sun, and sedge is in a hollow that pools cold air on clear nights. The sensors add faults: each has its own gain and offset, readings drop out or spike, and poppy's drifts warmer from April. Clover starts in March, heather's battery fails for three weeks in January, and the recipe excludes two of sedge's days.
+
+[`weather.spit`](weather/weather.spit) is the pipeline from SPIT's README, with checks on its files and a plotting stage. It cleans each site's days into one series for the year, reduces it to sea level, and compares each site with its region. It counts each site's frost and heat days, and ranks the sites by how far they drift. Last, it draws `data/results/figure.png` with [`figure.spit`](weather/figure.spit), a library with one step for each panel and one to lay them out:
+
+![Weather network: the sites on a map, one day cleaned, regional temperatures over the year, anomalies, alert days, and drift against mean anomaly](weather/figure.png)
+
+**a**, The land and the sites on it, coloured by region. **b**, One site's day as read (grey) and cleaned (blue), with its calibration undone and its bad hours interpolated (crosses); chosen for its dropout and spike, and picked out with `@where`. **c**, Each region's daily temperature over the year, the median of its sites, and all sites' together. **d**, Each site's daily anomaly from its region once both are reduced to sea level; grey, no file. **e**, Each site's frost days (left) and heat days (right), on the rows of **d**. **f**, Each site's mean anomaly against its drift over the year. The shaded band is where a site is not named: within 3.5 robust standard deviations of the median site and, for drift, within the 1 °C a year a sound sensor can wander. Poppy's sensor drifts; elm runs warm and sedge cool, which is their place, not their sensor.
+
+**What SPIT does for the workflow here:**
+- **Files are gathered into series early.** `clean(reading @vary(day), calibration)` turns each site's 92 day files into one series, so the 98 jobs after it run once per site, region or alert rather than once per file. The whole run takes under 10 s with `-j 8`.
+- **One operation, three groupings, two types.** `average(series: many Readings<S>)` makes each region's actual temperature, the network's, and each region's at sea level. The type variable `S` lets it take either kind of readings, and passes the kind to its output.
+- **Types keep the comparison honest.** `compare` takes `Readings<SeaLevel>` on both sides, so comparing a site's reduced series with a region's actual one fails `spit check` before anything runs.
+- **A dimension added in one place.** `tally(cleaned, threshold @each(alert))` checks every site against every alert. A third alert file would add 16 jobs and its own bars to **e**, with no change to the pipeline.
+- **The figure is built from parts.** `figure.spit` declares an operation for each panel and a `figure` operation whose steps draw the six and lay them out. The pipeline imports it with `use figure from figure.spit as fig`, and `spit dag` lists the seven jobs under the call.
+- **Ragged data needs nothing written for it.** The late site and the missing weeks give shorter series, not errors, and every median uses the sites it has.
+- **Excluding is a line with a reason.** Taking the two exclusions out of the recipe plans 1 job out of 98 to run, sedge's `clean`, and 21 more only if their inputs come out different. A rerun with nothing to do takes 0.2 s.
 
 ## Classifiers
 

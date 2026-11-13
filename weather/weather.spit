@@ -1,0 +1,89 @@
+# A network of weather sites: clean each site's year, compare each site with
+# its region, count each site's alerts, find the sensors that need a visit,
+# and draw it all in one figure.
+
+use figure from figure.spit as fig
+
+# Where each site stands, and the land around them, for the map.
+source location : Site .json [region, site] @check(json)
+source terrain : Terrain .csv
+source calibration : Calibration .json [region, site] @check(json)
+source reading : Readings<Raw> .csv [region, site, day] @check(day_of_hours)
+source threshold : Threshold .json [alert] @check(json)
+# No source holds `alert` beside the others, so say where it goes.
+dimensions [region, site, day, alert]
+
+default path: [{region}/][{site}/]{@product}[_{alert}][_{day}]
+default ext: .csv
+
+check nonempty: test -s {@path}
+check json: python3 -m json.tool {@path}
+# A header and one row for each hour.
+check day_of_hours: sh -c 'test "$(wc -l < "$1")" -eq 25' sh {@path}
+default check: nonempty
+
+stage clean:
+    # A site's days become one series: calibration undone, dropouts and spikes filled in.
+    operation clean(days: many Readings<Raw> @min(2), calibration: Calibration) -> Readings<Clean>
+    command clean: python3 {@here}/steps/clean.py --calibration {calibration} --days {days.day} -o {@output} {days}
+    cleaned = clean(reading @vary(day), calibration)
+
+stage compare:
+    # One operation for any kind of readings, and for any grouping: every site in a
+    # region, or every site.
+    operation average(series: many Readings<S>) -> Readings<S>
+    command average: python3 {@here}/steps/average.py -o {@output} {series}
+    regional = average(cleaned @vary(site))
+    overall = average(cleaned @vary(region, site))
+
+    # Height makes a site colder; reduced to sea level, sites differ only by what
+    # height doesn't explain.
+    operation reduce(series: Readings<Clean>, location: Site) -> Readings<SeaLevel>
+    command reduce: python3 {@here}/steps/reduce.py --location {location} -o {@output} {series}
+    reduced = reduce(cleaned, location)
+    regional_reduced = average(reduced @vary(site))
+
+    # Each site against its own region, matched on region. The types keep a site's
+    # reduced readings from being compared with a region's actual ones.
+    operation compare(readings: Readings<SeaLevel>, baseline: Readings<SeaLevel>) -> Anomaly
+    command compare: python3 {@here}/steps/compare.py {readings} {baseline} {@output}
+    anomaly = compare(reduced, regional_reduced)
+
+    operation rank(anomalies: many Anomaly) -> Table<League>
+    command rank: python3 {@here}/steps/rank.py --regions {anomalies.region} --sites {anomalies.site} -o {@output} {anomalies}
+    league = rank(anomaly @vary(region, site))
+
+stage alerts:
+    # `@each(alert)` checks every site against every alert there is.
+    operation tally(series: Readings<Clean>, threshold: Threshold) -> Count
+    command tally: python3 {@here}/steps/tally.py --alert {alert} --threshold {threshold} -o {@output} {series}
+    alert_days = tally(cleaned, threshold @each(alert))
+
+stage plot:
+    # The figure reads one table of each kind, so each collection becomes one file.
+    operation tabulate_regions(series: many Readings<Clean>) -> Table<Regions>
+    command tabulate_regions: python3 {@here}/steps/daily.py --regions {series.region} -o {@output} {series}
+    region_table = tabulate_regions(regional @vary(region))
+
+    operation tabulate_days(series: Readings<Clean>) -> Table<Days>
+    command tabulate_days: python3 {@here}/steps/daily.py -o {@output} {series}
+    day_table = tabulate_days(overall)
+
+    operation tabulate_alerts(counts: many Count) -> Table<Alerts>
+    command tabulate_alerts: python3 {@here}/steps/alerts.py --regions {counts.region} --sites {counts.site} --alerts {counts.alert} -o {@output} {counts}
+    alert_table = tabulate_alerts(alert_days @vary(region, site, alert))
+
+    # One panel a step, laid out by `figure.spit`. Panel b's day, chosen for its
+    # dropout and spike, is picked out with `@where`.
+    figure = fig::figure(
+        terrain,
+        location @vary(region, site),
+        reading @where(region=coast, site=dune, day=2025-06-26),
+        calibration @where(region=coast, site=dune),
+        cleaned @where(region=coast, site=dune),
+        region_table,
+        day_table,
+        alert_table,
+        anomaly @vary(region, site),
+        league
+    )
