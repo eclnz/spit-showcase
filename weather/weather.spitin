@@ -1,0 +1,17 @@
+pipeline weather.spit
+root data/raw
+output data/results
+
+inputs:
+    location: {region}/{site}/site.json
+    terrain: terrain.csv
+    calibration: {region}/{site}/calibration.json
+    reading: {region}/{site}/{day}.csv
+    threshold: alerts/{alert}.json
+
+# The battery at heather failed for three weeks; the files it left are missing,
+# not wrong. These two days at sedge are wrong: the sensor lay in grass cuttings.
+exclude reading[region=valley,site=sedge,day=2025-04-15]    # buried in cuttings
+exclude reading[region=valley,site=sedge,day=2025-04-19]    # buried in cuttings
+require [region, site] where calibration count=1
+require [region, site] where location count=1
