@@ -12,14 +12,14 @@
 #
 # Differences from the paper are listed in the README.
 
-source bold : Image<Func,Epi> .nii.gz [sub, task, run] @check(nifti_ok)
-source t1w : Image<Highres,Anat> .nii.gz [sub] @check(nifti_ok)
+source bold : Image<Func,Epi> .nii.gz [sub, task, run]
+source t1w : Image<Highres,Anat> .nii.gz [sub]
 
 # What FSL supplies, copied into the dataset by fetch.sh so that the pipeline
 # names every file it reads: the MNI152 template and its brain mask, and the
 # FIX classifier trained on the Whitehall II standard-sequence data.
-source mni : Image<MNI,Mm2> .nii.gz @check(nifti_ok)
-source mni_mask : Mask<MNI,Mm2> .nii.gz @check(nifti_ok)
+source mni : Image<MNI,Mm2> .nii.gz
+source mni_mask : Mask<MNI,Mm2> .nii.gz
 source model : Model .pyfix_model
 
 # The number of components of each group ICA: the paper's 30 and 100. The files
@@ -44,11 +44,12 @@ default path: out/{@stage}/{@product}[/{@entities}]
 check nonempty: test -s {@path}
 check nifti_ok: fslinfo {@path}
 default check: nonempty
+default check .nii.gz: nifti_ok
 
 stage anatomical:
     # The subject's T1, brain-extracted and segmented, and registered to MNI152.
     # fast writes the segmentation beside the brain it reads.
-    operation anat(t1w: Image<Highres,G>) -> (brain: Image<Highres,G> .nii.gz @check(nifti_ok), pveseg: Image<Highres,G> "_pveseg.nii.gz" beside brain)
+    operation anat(t1w: Image<Highres,G>) -> (brain: Image<Highres,G> .nii.gz, pveseg: Image<Highres,G> .nii.gz beside brain suffix "_pveseg")
     command anat:
         bet {t1w} {brain.dir}/{brain.stem} -R -f 0.3
         fast -t 1 -o {brain.dir}/{brain.stem} {brain}
@@ -61,26 +62,26 @@ stage anatomical:
     highres2standard = to_mni(brain, mni)
 
 stage preprocess:
-    operation motion(bold: Image<S,G>) -> (mc: Image<S,G> .nii.gz @check(nifti_ok), par: Motion .par beside mc)
+    operation motion(bold: Image<S,G>) -> (mc: Image<S,G> .nii.gz, par: Motion .par beside mc)
     command motion: mcflirt -in {bold} -out {mc.dir}/{mc.stem} -plots -meanvol
     resources motion: cores=1, memory=2G
     mc, par = motion(bold)
 
-    operation mean_image(mc: Image<S,G>) -> Image<S,G> .nii.gz @check(nifti_ok)
+    operation mean_image(mc: Image<S,G>) -> Image<S,G> .nii.gz
     command mean_image: fslmaths {mc} -Tmean {@output}
     resources mean_image: cores=1, memory=2G
     mean = mean_image(mc)
 
     # The brain of the mean image, and its mask. FIX reads the brain as the
     # run's example volume.
-    operation extract(mean: Image<S,G>) -> (brain: Image<S,G> .nii.gz @check(nifti_ok), mask: Mask<S,G> "_mask.nii.gz" beside brain)
+    operation extract(mean: Image<S,G>) -> (brain: Image<S,G> .nii.gz, mask: Mask<S,G> .nii.gz beside brain suffix "_mask")
     command extract: bet {mean} {brain.dir}/{brain.stem} -f 0.3 -m
     resources extract: cores=1, memory=2G
     func_brain, mask = extract(mean)
 
     # The run high-pass filtered at 100 s, which at a TR of 2 s is a sigma of 25
     # volumes, with its mean put back so that temporal SNR can be measured on it.
-    operation highpass(mc: Image<S,G>, mean: Image<S,G>, mask: Mask<S,G>) -> Image<S,G> .nii.gz @check(nifti_ok)
+    operation highpass(mc: Image<S,G>, mean: Image<S,G>, mask: Mask<S,G>) -> Image<S,G> .nii.gz
     command highpass: fslmaths {mc} -bptf 25 -1 -add {mean} -mas {mask} {@output}
     resources highpass: cores=1, memory=2G
     filtered = highpass(mc, mean, mask)
@@ -130,8 +131,8 @@ stage fix:
     ) -> (
         workdir: FixDir /,
         labels: Labels .txt,
-        soft: Image<Func,Epi> .nii.gz @check(nifti_ok),
-        aggressive: Image<Func,Epi> .nii.gz @check(nifti_ok)
+        soft: Image<Func,Epi> .nii.gz,
+        aggressive: Image<Func,Epi> .nii.gz
     )
     command fix:
         mkdir -p {workdir}/mc {workdir}/reg
@@ -158,7 +159,7 @@ stage fix:
 
 stage standard:
     # All three versions of each run, in MNI152 space at 4 mm.
-    operation to_standard(data: Image<Func,G>, func2standard: Transform<Func,S>, mni: Image<S,R>) -> Image<S,Mm4> .nii.gz @check(nifti_ok)
+    operation to_standard(data: Image<Func,G>, func2standard: Transform<Func,S>, mni: Image<S,R>) -> Image<S,Mm4> .nii.gz
     command to_standard: flirt -in {data} -ref {mni} -applyisoxfm 4 -init {func2standard} -out {@output}
     resources to_standard: cores=1, memory=8G
     none_mni = to_standard(filtered, func2standard, mni)
@@ -169,7 +170,7 @@ stage snr:
     # The temporal SNR of each run before and after each cleaning: every voxel's
     # mean over its standard deviation, summarised by its median inside the
     # brain mask eroded by three voxels, to leave out the edge.
-    operation tsnr_image(data: Image<S,G>) -> (tsnr: Image<S,G> .nii.gz @check(nifti_ok), sd: Image<S,G> "_sd.nii.gz" beside tsnr)
+    operation tsnr_image(data: Image<S,G>) -> (tsnr: Image<S,G> .nii.gz, sd: Image<S,G> .nii.gz beside tsnr suffix "_sd")
     command tsnr_image:
         fslmaths {data} -Tstd {sd}
         fslmaths {data} -Tmean -div {sd} {tsnr}
@@ -178,7 +179,7 @@ stage snr:
     soft_tsnr, soft_sd = tsnr_image(soft)
     aggressive_tsnr, aggressive_sd = tsnr_image(aggressive)
 
-    operation erode(mask: Mask<S,G>) -> Mask<S,G> .nii.gz @check(nifti_ok)
+    operation erode(mask: Mask<S,G>) -> Mask<S,G> .nii.gz
     command erode: fslmaths {mask} -kernel 3D -ero -ero -ero {@output}
     inner = erode(mask)
 
@@ -222,7 +223,7 @@ stage dual:
     command dual1: fsl_glm -i {data} -d {group}/melodic_IC.nii.gz -o {@output} --demean -m {group}/mask.nii.gz
     resources dual1: cores=1, memory=2G
 
-    operation dual2(data: Image<S,G>, series: Series<S,G>, group: ICA<S,G>) -> Image<S,G> .nii.gz @check(nifti_ok)
+    operation dual2(data: Image<S,G>, series: Series<S,G>, group: ICA<S,G>) -> Image<S,G> .nii.gz
     command dual2: fsl_glm -i {data} -d {series} -o {@output.dir}/{@output.stem} --demean -m {group}/mask.nii.gz --des_norm
     resources dual2: cores=1, memory=2G
 
@@ -247,7 +248,7 @@ stage compare:
 
     # Spatial maps: each cleaning's group-mean map of every component, against
     # the template it came from.
-    operation group_mean(maps: many Image<S,G>) -> Image<S,G> .nii.gz @check(nifti_ok)
+    operation group_mean(maps: many Image<S,G>) -> Image<S,G> .nii.gz
     command group_mean: python3 {@here}/scripts/group_mean.py {@output} {maps}
     none_mean = group_mean(none_maps @vary(sub, task, run))
     soft_mean = group_mean(soft_maps @vary(sub, task, run))
